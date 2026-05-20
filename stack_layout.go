@@ -93,13 +93,54 @@ func (g *generator) stackValueSliceExprWithInfo(typ abiType, info typeInfo, valu
 
 func (g *generator) stackValueItemExpr(typ abiType, value string) string {
 	info := g.typeForStack(typ)
+	return g.stackValueItemExprWithInfo(typ, info, value)
+}
+
+func (g *generator) stackValueItemExprWithInfo(typ abiType, info typeInfo, value string) string {
 	if !info.Supported {
 		return value
 	}
 	if g.stackValueFlattens(typ) {
-		return g.stackValueSliceExpr(typ, value)
+		return g.stackValueSliceExprWithInfo(typ, info, value)
 	}
 	return info.StackExpr(value)
+}
+
+func (g *generator) stackValueItemErrExpr(typ abiType, value string) string {
+	info := g.typeForStack(typ)
+	return g.stackValueItemErrExprWithInfo(typ, info, value)
+}
+
+func (g *generator) stackValueItemErrExprWithInfo(typ abiType, info typeInfo, value string) string {
+	if !info.Supported {
+		return fmt.Sprintf("%s, nil", value)
+	}
+	if info.StackErrExpr != nil {
+		return info.StackErrExpr(value)
+	}
+	return fmt.Sprintf("%s, nil", g.stackValueItemExprWithInfo(typ, info, value))
+}
+
+func (g *generator) stackValueSliceErrExprWithInfo(typ abiType, info typeInfo, value string) string {
+	if !info.Supported {
+		return fmt.Sprintf("[]any{%s}, nil", value)
+	}
+	if info.StackErrExpr != nil {
+		if g.stackValueFlattens(typ) {
+			return info.StackErrExpr(value)
+		}
+		g.useHelper(helperStackSingleValue)
+		return fmt.Sprintf("stackSingleValue(%s)", info.StackErrExpr(value))
+	}
+	return fmt.Sprintf("%s, nil", g.stackValueSliceExprWithInfo(typ, info, value))
+}
+
+func (g *generator) stackValueItemErrFunc(typ abiType, goType string) string {
+	return fmt.Sprintf("func(v %s) (any, error) { return %s }", goType, g.stackValueItemErrExpr(typ, "v"))
+}
+
+func (g *generator) stackValueSliceErrFuncWithInfo(typ abiType, info typeInfo, goType string) string {
+	return fmt.Sprintf("func(v %s) ([]any, error) { return %s }", goType, g.stackValueSliceErrExprWithInfo(typ, info, "v"))
 }
 
 func (g *generator) appendStackValueLines(typ abiType, out, value string) []string {
@@ -111,6 +152,50 @@ func (g *generator) appendStackValueLines(typ abiType, out, value string) []stri
 		return []string{fmt.Sprintf("%s = append(%s, %s...)", out, out, info.StackExpr(value))}
 	}
 	return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, info.StackExpr(value))}
+}
+
+func (g *generator) appendStackValueLinesErr(typ abiType, out, value, temp string) []string {
+	info := g.typeForStack(typ)
+	return g.appendStackValueLinesErrWithInfo(typ, info, out, value, temp)
+}
+
+func (g *generator) appendStackValueLinesErrWithInfo(typ abiType, info typeInfo, out, value, temp string) []string {
+	if !info.Supported {
+		return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, value)}
+	}
+	if info.StackErrExpr != nil {
+		lines := []string{
+			fmt.Sprintf("%s, err := %s", temp, info.StackErrExpr(value)),
+			"if err != nil {",
+			"\treturn nil, err",
+			"}",
+		}
+		if g.stackValueFlattens(typ) {
+			return append(lines, fmt.Sprintf("%s = append(%s, %s...)", out, out, temp))
+		}
+		return append(lines, fmt.Sprintf("%s = append(%s, %s)", out, out, temp))
+	}
+	if g.stackValueFlattens(typ) {
+		return []string{fmt.Sprintf("%s = append(%s, %s...)", out, out, info.StackExpr(value))}
+	}
+	return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, info.StackExpr(value))}
+}
+
+func (g *generator) appendStackValueItemLinesErr(typ abiType, out, value, temp string) []string {
+	info := g.typeForStack(typ)
+	if !info.Supported {
+		return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, value)}
+	}
+	if info.StackErrExpr != nil {
+		lines := []string{
+			fmt.Sprintf("%s, err := %s", temp, g.stackValueItemErrExprWithInfo(typ, info, value)),
+			"if err != nil {",
+			"\treturn nil, err",
+			"}",
+		}
+		return append(lines, fmt.Sprintf("%s = append(%s, %s)", out, out, temp))
+	}
+	return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, g.stackValueItemExprWithInfo(typ, info, value))}
 }
 
 func isNullABIType(typ abiType) bool {

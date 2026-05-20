@@ -66,13 +66,23 @@ func (g *generator) typeForStack(typ abiType) typeInfo {
 			StackExpr: func(name string) string { return name + ".Nano()" },
 			Zero:      "tlb.Coins{}",
 		}
-	case "address", "addressExt", "addressOpt", "addressAny":
+	case "address", "addressExt", "addressAny":
 		g.useImport("github.com/xssnick/tonutils-go/address")
 		return typeInfo{
 			GoType:    "*address.Address",
 			Supported: true,
 			Kind:      "addr",
 			StackExpr: func(name string) string { return name },
+			Zero:      "nil",
+		}
+	case "addressOpt":
+		g.useImport("github.com/xssnick/tonutils-go/address")
+		g.useHelper(helperStackOptionalAddr)
+		return typeInfo{
+			GoType:    "*address.Address",
+			Supported: true,
+			Kind:      "addrOpt",
+			StackExpr: func(name string) string { return fmt.Sprintf("stackOptionalAddress(%s)", name) },
 			Zero:      "nil",
 		}
 	case "bitsN":
@@ -124,8 +134,15 @@ func (g *generator) typeForStack(typ abiType) typeInfo {
 				return unsupportedStack("struct " + typ.StructName + " field " + fld.Name + ": " + g.typeForStack(fld.Type).Reason)
 			}
 		}
+		mayFail := false
+		for _, fld := range decl.Fields {
+			if g.stackParamEncodingMayFail(fld.Type) {
+				mayFail = true
+				break
+			}
+		}
 		g.useStackStructEncoder(typ.StructName)
-		return typeInfo{
+		info := typeInfo{
 			GoType:    "*" + name,
 			Supported: true,
 			Kind:      "struct",
@@ -134,6 +151,13 @@ func (g *generator) typeForStack(typ abiType) typeInfo {
 			},
 			Zero: "nil",
 		}
+		if mayFail {
+			info.StackErr = true
+			info.StackErrExpr = func(nameArg string) string {
+				return fmt.Sprintf("stack%sErr(%s)", name, nameArg)
+			}
+		}
+		return info
 	case "tensor", "shapedTuple":
 		return g.tupleTypeForStack(typ, "")
 	case "union":
@@ -183,7 +207,11 @@ func (g *generator) typeForStack(typ abiType) typeInfo {
 		}
 		g.useHelper(helperStackList)
 		goType := "[]" + inner.GoType
-		return typeInfo{
+		mayFail := g.stackParamEncodingMayFail(*typ.Inner)
+		if mayFail {
+			g.useHelper(helperStackListErr)
+		}
+		info := typeInfo{
 			GoType:    goType,
 			Supported: true,
 			Kind:      "lispList",
@@ -192,6 +220,13 @@ func (g *generator) typeForStack(typ abiType) typeInfo {
 			},
 			Zero: "nil",
 		}
+		if mayFail {
+			info.StackErr = true
+			info.StackErrExpr = func(name string) string {
+				return fmt.Sprintf("stackLispListErr(%s, %s)", name, g.stackValueItemErrFunc(*typ.Inner, inner.GoType))
+			}
+		}
+		return info
 	case "AliasRef":
 		return g.aliasTypeForStack(typ)
 	case "EnumRef":

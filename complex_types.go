@@ -184,6 +184,7 @@ func (g *generator) tupleTypeForStack(typ abiType, suggestedName string) typeInf
 	}
 	var b bytes.Buffer
 	fieldNames := tupleFieldNames(typ.Items)
+	mayFail := false
 	if includeType {
 		fmt.Fprintf(&b, "type %s struct {\n", name)
 		for i, item := range typ.Items {
@@ -196,23 +197,53 @@ func (g *generator) tupleTypeForStack(typ abiType, suggestedName string) typeInf
 		}
 		b.WriteString("}\n\n")
 	}
-	fmt.Fprintf(&b, "func stack%s(value *%s) []any {\n", name, name)
-	b.WriteString("\tif value == nil {\n")
-	b.WriteString("\t\treturn nil\n")
-	b.WriteString("\t}\n")
-	fmt.Fprintf(&b, "\tout := make([]any, 0, %d)\n", expectedItems)
-	for i, item := range typ.Items {
-		fieldName := fieldNames[i]
-		if typ.Kind == "shapedTuple" {
-			fmt.Fprintf(&b, "\tout = append(out, %s)\n", g.stackValueItemExpr(item, "value."+fieldName))
-		} else {
-			for _, line := range g.appendStackValueLines(item, "out", "value."+fieldName) {
+	for _, item := range typ.Items {
+		if g.stackParamEncodingMayFail(item) {
+			mayFail = true
+			break
+		}
+	}
+	if !mayFail {
+		fmt.Fprintf(&b, "func stack%s(value *%s) []any {\n", name, name)
+		b.WriteString("\tif value == nil {\n")
+		b.WriteString("\t\treturn nil\n")
+		b.WriteString("\t}\n")
+		fmt.Fprintf(&b, "\tout := make([]any, 0, %d)\n", expectedItems)
+		for i, item := range typ.Items {
+			fieldName := fieldNames[i]
+			if typ.Kind == "shapedTuple" {
+				fmt.Fprintf(&b, "\tout = append(out, %s)\n", g.stackValueItemExpr(item, "value."+fieldName))
+			} else {
+				for _, line := range g.appendStackValueLines(item, "out", "value."+fieldName) {
+					fmt.Fprintf(&b, "\t%s\n", line)
+				}
+			}
+		}
+		b.WriteString("\treturn out\n")
+		b.WriteString("}\n\n")
+	}
+	if mayFail {
+		fmt.Fprintf(&b, "func stack%sErr(value *%s) ([]any, error) {\n", name, name)
+		b.WriteString("\tif value == nil {\n")
+		b.WriteString("\t\treturn nil, nil\n")
+		b.WriteString("\t}\n")
+		fmt.Fprintf(&b, "\tout := make([]any, 0, %d)\n", expectedItems)
+		for i, item := range typ.Items {
+			fieldName := fieldNames[i]
+			temp := unexportedName(name+fieldName) + "Stack"
+			var lines []string
+			if typ.Kind == "shapedTuple" {
+				lines = g.appendStackValueItemLinesErr(item, "out", "value."+fieldName, temp)
+			} else {
+				lines = g.appendStackValueLinesErr(item, "out", "value."+fieldName, temp)
+			}
+			for _, line := range lines {
 				fmt.Fprintf(&b, "\t%s\n", line)
 			}
 		}
+		b.WriteString("\treturn out, nil\n")
+		b.WriteString("}\n\n")
 	}
-	b.WriteString("\treturn out\n")
-	b.WriteString("}\n\n")
 	fmt.Fprintf(&b, "func decode%sStackTuple(values []any) (*%s, error) {\n", name, name)
 	fmt.Fprintf(&b, "\tif len(values) < %d {\n", expectedItems)
 	fmt.Fprintf(&b, "\t\treturn nil, fmt.Errorf(\"%s stack tuple expects %d items, got %%d\", len(values))\n", name, expectedItems)
@@ -250,7 +281,7 @@ func (g *generator) tupleTypeForStack(typ abiType, suggestedName string) typeInf
 		g.addGeneratedHelper("stackTuple:"+name, b.String())
 	}
 
-	return typeInfo{
+	info := typeInfo{
 		GoType:    "*" + name,
 		Supported: true,
 		Kind:      "tupleStruct",
@@ -271,6 +302,13 @@ func (g *generator) tupleTypeForStack(typ abiType, suggestedName string) typeInf
 		},
 		Zero: "nil",
 	}
+	if mayFail {
+		info.StackErr = true
+		info.StackErrExpr = func(value string) string {
+			return fmt.Sprintf("stack%sErr(%s)", name, value)
+		}
+	}
+	return info
 }
 
 func (g *generator) writeStackTupleHelpers(dst *bytes.Buffer, declName string, fields []field) {
@@ -279,25 +317,49 @@ func (g *generator) writeStackTupleHelpers(dst *bytes.Buffer, declName string, f
 		return
 	}
 	width := 0
+	mayFail := false
 	for _, fld := range fields {
 		fieldWidth, ok, _ := g.stackWidth(fld.Type)
 		if ok {
 			width += fieldWidth
 		}
+		if g.stackParamEncodingMayFail(fld.Type) {
+			mayFail = true
+		}
 	}
-	fmt.Fprintf(dst, "func stack%s(value *%s) []any {\n", name, name)
+	fieldNames := declarationFieldNames(fields)
+	if !mayFail {
+		fmt.Fprintf(dst, "func stack%s(value *%s) []any {\n", name, name)
+		dst.WriteString("\tif value == nil {\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		fmt.Fprintf(dst, "\tout := make([]any, 0, %d)\n", width)
+		for i, fld := range fields {
+			fieldName := fieldNames[i]
+			for _, line := range g.appendStackStructFieldLines(declName, fld, fieldName, "out", "value."+fieldName) {
+				fmt.Fprintf(dst, "\t%s\n", line)
+			}
+		}
+		dst.WriteString("\treturn out\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if !mayFail {
+		return
+	}
+	fmt.Fprintf(dst, "func stack%sErr(value *%s) ([]any, error) {\n", name, name)
 	dst.WriteString("\tif value == nil {\n")
-	dst.WriteString("\t\treturn nil\n")
+	dst.WriteString("\t\treturn nil, nil\n")
 	dst.WriteString("\t}\n")
 	fmt.Fprintf(dst, "\tout := make([]any, 0, %d)\n", width)
-	fieldNames := declarationFieldNames(fields)
 	for i, fld := range fields {
 		fieldName := fieldNames[i]
-		for _, line := range g.appendStackStructFieldLines(declName, fld, fieldName, "out", "value."+fieldName) {
+		temp := unexportedName(name+fieldName) + "Stack"
+		for _, line := range g.appendStackStructFieldLinesErr(declName, fld, fieldName, "out", "value."+fieldName, temp) {
 			fmt.Fprintf(dst, "\t%s\n", line)
 		}
 	}
-	dst.WriteString("\treturn out\n")
+	dst.WriteString("\treturn out, nil\n")
 	dst.WriteString("}\n\n")
 }
 
@@ -311,6 +373,16 @@ func (g *generator) appendStackStructFieldLines(declName string, fld field, fiel
 	return g.appendStackValueLinesNamed(fld.Type, exportedName(declName)+fieldName, out, value)
 }
 
+func (g *generator) appendStackStructFieldLinesErr(declName string, fld field, fieldName, out, value, temp string) []string {
+	if g.tlbStructs[declName] {
+		declared := g.typeForTLBNamed(fld.Type, true, exportedName(declName)+fieldName)
+		if declared.Supported {
+			return g.appendStackValueLinesErrForDeclaredType(fld.Type, declared, out, value, temp)
+		}
+	}
+	return g.appendStackValueLinesErrNamed(fld.Type, exportedName(declName)+fieldName, out, value, temp)
+}
+
 func (g *generator) appendStackValueLinesNamed(typ abiType, suggestedName, out, value string) []string {
 	info := g.typeForStackNamed(typ, suggestedName)
 	if !info.Supported {
@@ -320,6 +392,11 @@ func (g *generator) appendStackValueLinesNamed(typ abiType, suggestedName, out, 
 		return []string{fmt.Sprintf("%s = append(%s, %s...)", out, out, info.StackExpr(value))}
 	}
 	return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, info.StackExpr(value))}
+}
+
+func (g *generator) appendStackValueLinesErrNamed(typ abiType, suggestedName, out, value, temp string) []string {
+	info := g.typeForStackNamed(typ, suggestedName)
+	return g.appendStackValueLinesErrWithInfo(typ, info, out, value, temp)
 }
 
 func (g *generator) appendStackValueLinesForDeclaredType(typ abiType, declared typeInfo, out, value string) []string {
@@ -371,6 +448,55 @@ func (g *generator) appendStackValueLinesForDeclaredType(typ abiType, declared t
 	return g.appendStackValueLinesNamed(typ, declaredStackTypeName(declared.GoType), out, value)
 }
 
+func (g *generator) appendStackValueLinesErrForDeclaredType(typ abiType, declared typeInfo, out, value, temp string) []string {
+	switch typ.Kind {
+	case "AliasRef":
+		decl, ok := g.aliases[typ.AliasName]
+		if ok && aliasDecodesDirectlyThroughTarget(decl.Target) {
+			return g.appendStackValueLinesErrForDeclaredType(decl.Target, declared, out, value, temp)
+		}
+	case "StructRef":
+		g.useStackStructEncoder(typ.StructName)
+		arg := value
+		if !strings.HasPrefix(declared.GoType, "*") {
+			arg = "&" + value
+		}
+		info := g.typeForStack(typ)
+		return g.appendStackValueLinesErrWithInfo(typ, info, out, arg, temp)
+	case "tensor":
+		name := declaredStackTypeName(declared.GoType)
+		info := g.tupleTypeForStack(typ, name)
+		if !info.Supported {
+			return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, value)}
+		}
+		arg := value
+		if !strings.HasPrefix(declared.GoType, "*") {
+			arg = "&" + value
+		}
+		return g.appendStackValueLinesErrWithInfo(typ, info, out, arg, temp)
+	case "union":
+		name := declaredStackTypeName(declared.GoType)
+		info := g.unionTypeForStack(typ, name)
+		if !info.Supported {
+			return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, value)}
+		}
+		arg := value
+		if !declared.Interface && !strings.HasPrefix(declared.GoType, "*") {
+			arg = "&" + value
+		}
+		return g.appendStackValueLinesErrWithInfo(typ, info, out, arg, temp)
+	case "nullable":
+		if typ.Inner != nil && declaredUsesCompoundStackType(*typ.Inner, declared) {
+			return g.appendNullableDeclaredStackValueLinesErr(*typ.Inner, declared, out, value, temp, typ.StackWidth, typ.StackTypeID)
+		}
+	case "remaining":
+		if declared.GoType == "*cell.Cell" {
+			return []string{fmt.Sprintf("%s = append(%s, %s)", out, out, value)}
+		}
+	}
+	return g.appendStackValueLinesErrNamed(typ, declaredStackTypeName(declared.GoType), out, value, temp)
+}
+
 func (g *generator) appendNullableDeclaredStackValueLines(inner abiType, declared typeInfo, out, value string, stackWidth, stackTypeID *int) []string {
 	name := declaredStackTypeName(declared.GoType)
 	encode := "nil"
@@ -387,7 +513,7 @@ func (g *generator) appendNullableDeclaredStackValueLines(inner abiType, declare
 		} else {
 			encode = fmt.Sprintf("func(v %s) []any { return stack%s(&v) }", declared.GoType, name)
 		}
-	case "tensor":
+	case "tensor", "shapedTuple":
 		g.tupleTypeForStack(inner, name)
 		encode = fmt.Sprintf("func(v %s) []any { return stack%s(v) }", declared.GoType, name)
 	case "union":
@@ -409,6 +535,54 @@ func (g *generator) appendNullableDeclaredStackValueLines(inner abiType, declare
 	return g.appendStackValueLinesNamed(abiType{Kind: "nullable", Inner: &inner}, name, out, value)
 }
 
+func (g *generator) appendNullableDeclaredStackValueLinesErr(inner abiType, declared typeInfo, out, value, temp string, stackWidth, stackTypeID *int) []string {
+	name := declaredStackTypeName(declared.GoType)
+	if stackWidth == nil || stackTypeID == nil {
+		return g.appendStackValueLinesErrNamed(abiType{Kind: "nullable", Inner: &inner}, name, out, value, temp)
+	}
+	if !g.stackParamEncodingMayFail(inner) {
+		return g.appendNullableDeclaredStackValueLines(inner, declared, out, value, stackWidth, stackTypeID)
+	}
+
+	encode := "nil"
+	switch inner.Kind {
+	case "AliasRef":
+		if decl, ok := g.aliases[inner.AliasName]; ok && aliasDecodesDirectlyThroughTarget(decl.Target) {
+			return g.appendNullableDeclaredStackValueLinesErr(decl.Target, declared, out, value, temp, stackWidth, stackTypeID)
+		}
+	case "StructRef":
+		name = exportedName(inner.StructName)
+		g.useStackStructEncoder(inner.StructName)
+		if strings.HasPrefix(declared.GoType, "*") {
+			encode = fmt.Sprintf("func(v %s) ([]any, error) { return stack%sErr(v) }", declared.GoType, name)
+		} else {
+			encode = fmt.Sprintf("func(v %s) ([]any, error) { return stack%sErr(&v) }", declared.GoType, name)
+		}
+	case "tensor", "shapedTuple":
+		info := g.tupleTypeForStack(inner, name)
+		encode = g.stackValueSliceErrFuncWithInfo(inner, info, declared.GoType)
+	case "union":
+		info := g.unionTypeForStack(inner, name)
+		encode = g.stackValueSliceErrFuncWithInfo(inner, info, declared.GoType)
+	}
+
+	var expr string
+	if strings.HasPrefix(declared.GoType, "*") || declared.Interface {
+		g.useHelper(helperWideNullableValueErr)
+		expr = fmt.Sprintf("stackWideNullableValueErr(%s, %d, int64(%d), %s)", value, *stackWidth, *stackTypeID, encode)
+	} else {
+		g.useHelper(helperWideNullablePtrErr)
+		expr = fmt.Sprintf("stackWideNullablePtrErr(&%s, %d, int64(%d), %s)", value, *stackWidth, *stackTypeID, encode)
+	}
+	return []string{
+		fmt.Sprintf("%s, err := %s", temp, expr),
+		"if err != nil {",
+		"\treturn nil, err",
+		"}",
+		fmt.Sprintf("%s = append(%s, %s...)", out, out, temp),
+	}
+}
+
 func (g *generator) writeGeneratedStackTupleHelpers(dst *bytes.Buffer) {
 	// Synthetic tuple helpers are emitted lazily by raw/param helpers in this file.
 }
@@ -423,7 +597,11 @@ func (g *generator) stackArrayType(typ abiType) typeInfo {
 	}
 	g.useHelper(helperStackArray)
 	goType := "[]" + inner.GoType
-	return typeInfo{
+	mayFail := g.stackParamEncodingMayFail(*typ.Inner)
+	if mayFail {
+		g.useHelper(helperStackArrayErr)
+	}
+	info := typeInfo{
 		GoType:    goType,
 		Supported: true,
 		Kind:      "array",
@@ -432,6 +610,13 @@ func (g *generator) stackArrayType(typ abiType) typeInfo {
 		},
 		Zero: "nil",
 	}
+	if mayFail {
+		info.StackErr = true
+		info.StackErrExpr = func(value string) string {
+			return fmt.Sprintf("stackArrayErr(%s, %s)", value, g.stackValueItemErrFunc(*typ.Inner, inner.GoType))
+		}
+	}
+	return info
 }
 
 func (g *generator) nullableTypeForStack(typ abiType) typeInfo {
@@ -451,13 +636,14 @@ func (g *generator) nullableTypeForStackNamed(typ abiType, suggestedName string)
 		goType = nullableGoType(inner.GoType)
 	}
 	useValue := inner.Interface || strings.HasPrefix(inner.GoType, "*") || strings.HasPrefix(inner.GoType, "[]") || inner.GoType == "any"
+	mayFail := g.stackParamEncodingMayFail(*typ.Inner)
 	if typ.StackWidth != nil && typ.StackTypeID != nil {
 		if useValue {
 			g.useHelper(helperWideNullableValue)
 		} else {
 			g.useHelper(helperWideNullablePtr)
 		}
-		return typeInfo{
+		info := typeInfo{
 			GoType:    goType,
 			Supported: true,
 			Kind:      "nullable",
@@ -471,13 +657,30 @@ func (g *generator) nullableTypeForStackNamed(typ abiType, suggestedName string)
 			},
 			Zero: "nil",
 		}
+		if mayFail {
+			info.StackErr = true
+			if useValue {
+				g.useHelper(helperWideNullableValueErr)
+				info.StackErrExpr = func(value string) string {
+					encode := g.stackValueSliceErrFuncWithInfo(*typ.Inner, inner, inner.GoType)
+					return fmt.Sprintf("stackWideNullableValueErr(%s, %d, int64(%d), %s)", value, *typ.StackWidth, *typ.StackTypeID, encode)
+				}
+			} else {
+				g.useHelper(helperWideNullablePtrErr)
+				info.StackErrExpr = func(value string) string {
+					encode := g.stackValueSliceErrFuncWithInfo(*typ.Inner, inner, inner.GoType)
+					return fmt.Sprintf("stackWideNullablePtrErr(%s, %d, int64(%d), %s)", value, *typ.StackWidth, *typ.StackTypeID, encode)
+				}
+			}
+		}
+		return info
 	}
 	if useValue {
 		g.useHelper(helperNullableValue)
 	} else {
 		g.useHelper(helperNullablePtr)
 	}
-	return typeInfo{
+	info := typeInfo{
 		GoType:    goType,
 		Supported: true,
 		Kind:      "nullable",
@@ -490,6 +693,21 @@ func (g *generator) nullableTypeForStackNamed(typ abiType, suggestedName string)
 		},
 		Zero: "nil",
 	}
+	if mayFail {
+		info.StackErr = true
+		if useValue {
+			g.useHelper(helperNullableValueErr)
+			info.StackErrExpr = func(value string) string {
+				return fmt.Sprintf("stackNullableValueErr(%s, %s)", value, g.stackValueItemErrFunc(*typ.Inner, inner.GoType))
+			}
+		} else {
+			g.useHelper(helperNullablePtrErr)
+			info.StackErrExpr = func(value string) string {
+				return fmt.Sprintf("stackNullablePtrErr(%s, %s)", value, g.stackValueItemErrFunc(*typ.Inner, inner.GoType))
+			}
+		}
+	}
+	return info
 }
 
 func (g *generator) stackCellOfType(typ abiType) typeInfo {
@@ -516,6 +734,7 @@ func (g *generator) stackCellOfType(typ abiType) typeInfo {
 		Supported: true,
 		Kind:      "cellOf",
 		StackExpr: func(value string) string {
+			g.useHelper(helperMustStackCell)
 			return fmt.Sprintf("mustStackCellOf(%s)", value)
 		},
 		StackErrExpr: func(value string) string {
@@ -531,14 +750,9 @@ func (g *generator) stackMapType(typ abiType) typeInfo {
 	if !info.Supported {
 		return unsupportedStack(info.Reason)
 	}
-	g.useHelper(helperStackCell)
 	info.StackExpr = func(value string) string {
-		return fmt.Sprintf("mustStackCellOf(%s)", value)
+		return fmt.Sprintf("%s(%s)", mapStackFuncName(info.GoType), value)
 	}
-	info.StackErrExpr = func(value string) string {
-		return fmt.Sprintf("stackCellOf(%s)", value)
-	}
-	info.StackErr = true
 	info.Zero = info.GoType + "{}"
 	return info
 }
@@ -632,25 +846,8 @@ func (g *generator) resultMapType(typ abiType) typeInfo {
 	if !info.Supported {
 		return unsupported(info.Reason)
 	}
-	g.useImport("github.com/xssnick/tonutils-go/tlb")
-	g.useImport("github.com/xssnick/tonutils-go/tvm/cell")
 	info.ResultDecode = func(target string, index uint, errReturn string) []string {
-		raw := fmt.Sprintf("cell%d", index)
-		lines := []string{
-			fmt.Sprintf("%s, err := result.Cell(%d)", raw, index),
-			"if err != nil {",
-			fmt.Sprintf("\treturn %s, err", errReturn),
-			"}",
-		}
-		if assignOp(target) == ":=" {
-			lines = append(lines, fmt.Sprintf("var %s %s", target, info.GoType))
-		}
-		lines = append(lines,
-			fmt.Sprintf("if err := tlb.Parse(&%s, %s); err != nil {", target, raw),
-			fmt.Sprintf("\treturn %s, err", errReturn),
-			"}",
-		)
-		return lines
+		return directDecodeLines(target, fmt.Sprintf("%s(result, %d)", mapResultLoadFuncName(info.GoType), index), errReturn)
 	}
 	info.Zero = info.GoType + "{}"
 	return info

@@ -129,7 +129,7 @@ func (g *generator) typeForResult(typ abiType) typeInfo {
 			},
 			Zero: "tlb.Coins{}",
 		}
-	case "address", "addressExt", "addressOpt", "addressAny":
+	case "address", "addressExt", "addressAny":
 		g.useImport("github.com/xssnick/tonutils-go/address")
 		return typeInfo{
 			GoType:    "*address.Address",
@@ -139,6 +139,23 @@ func (g *generator) typeForResult(typ abiType) typeInfo {
 				g.useHelper(helperLoadAddr)
 				return []string{
 					fmt.Sprintf("%s, err %s loadAddressResult(result, %d)", target, assignOp(target), index),
+					"if err != nil {",
+					fmt.Sprintf("\treturn %s, err", errReturn),
+					"}",
+				}
+			},
+			Zero: "nil",
+		}
+	case "addressOpt":
+		g.useImport("github.com/xssnick/tonutils-go/address")
+		return typeInfo{
+			GoType:    "*address.Address",
+			Supported: true,
+			Kind:      "addrOpt",
+			ResultDecode: func(target string, index uint, errReturn string) []string {
+				g.useHelper(helperLoadOptionalAddr)
+				return []string{
+					fmt.Sprintf("%s, err %s loadOptionalAddressResult(result, %d)", target, assignOp(target), index),
 					"if err != nil {",
 					fmt.Sprintf("\treturn %s, err", errReturn),
 					"}",

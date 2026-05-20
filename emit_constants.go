@@ -34,11 +34,7 @@ func (g *generator) writeConstants(dst *bytes.Buffer) {
 }
 
 func constantFunctionName(name string) string {
-	name = exportedName(name)
-	if name == "" {
-		return "Const"
-	}
-	return "Const" + name
+	return "Const" + exportedName(name)
 }
 
 func (g *generator) constantValueInfo(expr abiConstExpression) constantValueInfo {

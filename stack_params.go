@@ -11,8 +11,6 @@ func (g *generator) writeUnsupportedParamDiagnostics(dst *bytes.Buffer, methodNa
 		switch {
 		case !param.Info.Supported:
 			g.writeTODO(dst, "", "stack parameter %s for %s returns an encode error because its type is not generated yet: %s.", param.Name, methodName, param.Info.Reason)
-		case g.paramNeedsNestedEncodingError(param):
-			g.writeTODO(dst, "", "stack parameter %s for %s returns an encode error because nested fallible stack encoding is not generated yet.", param.Name, methodName)
 		}
 	}
 }
@@ -59,7 +57,7 @@ func (g *generator) paramsDeclareErr(params []methodParam) bool {
 		return false
 	}
 	for _, param := range params {
-		if param.Info.Supported && param.Info.StackErr && !g.stackValueFlattens(param.Type) {
+		if param.Info.Supported && param.Info.StackErr && param.Info.StackErrExpr != nil {
 			return true
 		}
 	}
@@ -73,29 +71,21 @@ func (g *generator) appendStackParamValueLines(param methodParam, out, errReturn
 		errExpr := fmt.Sprintf("fmt.Errorf(%q)", fmt.Sprintf("encode stack parameter %s: %s", param.Name, info.Reason))
 		return []string{fmt.Sprintf("return %s", returnWithError(errReturn, errExpr))}
 	}
-	if g.paramNeedsNestedEncodingError(param) {
-		g.useImport("fmt")
-		errExpr := fmt.Sprintf("fmt.Errorf(%q)", fmt.Sprintf("encode stack parameter %s: nested fallible stack encoding is not generated yet", param.Name))
-		return []string{fmt.Sprintf("return %s", returnWithError(errReturn, errExpr))}
-	}
-	if info.StackErr && info.StackErrExpr != nil && !g.stackValueFlattens(param.Type) {
+	if info.StackErr && info.StackErrExpr != nil {
 		g.useImport("fmt")
 		tmp := unexportedName(param.Name) + "Stack"
-		return []string{
+		lines := []string{
 			fmt.Sprintf("%s, err := %s", tmp, info.StackErrExpr(param.Name)),
 			"if err != nil {",
 			fmt.Sprintf("\treturn %s", returnWithError(errReturn, fmt.Sprintf("fmt.Errorf(\"encode stack parameter %s: %%w\", err)", param.Name))),
 			"}",
-			fmt.Sprintf("%s = append(%s, %s)", out, out, tmp),
 		}
+		if g.stackValueFlattens(param.Type) {
+			return append(lines, fmt.Sprintf("%s = append(%s, %s...)", out, out, tmp))
+		}
+		return append(lines, fmt.Sprintf("%s = append(%s, %s)", out, out, tmp))
 	}
 	return g.appendStackValueLines(param.Type, out, param.Name)
-}
-
-func (g *generator) paramNeedsNestedEncodingError(param methodParam) bool {
-	return param.Info.Supported &&
-		g.stackParamEncodingMayFail(param.Type) &&
-		!(param.Info.StackErr && !g.stackValueFlattens(param.Type))
 }
 
 func (g *generator) stackParamEncodingMayFail(typ abiType) bool {

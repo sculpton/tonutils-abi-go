@@ -94,7 +94,11 @@ func (g *generator) aliasTypeForStack(typ abiType) typeInfo {
 		}
 	case "addr":
 		base.StackExpr = func(name string) string {
-			return fmt.Sprintf("(*address.Address)(%s)", name)
+			return baseStackExpr(fmt.Sprintf("(*address.Address)(%s)", name))
+		}
+	case "addrOpt":
+		base.StackExpr = func(name string) string {
+			return baseStackExpr(fmt.Sprintf("(*address.Address)(%s)", name))
 		}
 	case "cell":
 		base.StackExpr = func(name string) string {
@@ -175,7 +179,7 @@ func (g *generator) aliasTypeForResult(typ abiType) typeInfo {
 			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, fmt.Sprintf("decoded%d", index))))
 			return lines
 		}
-	case "varuint", "varint", "coins", "bool", "addr", "cell", "slice", "builder", "nullable", "tupleAny", "lispList", "unknown", "struct", "array", "cellOf", "map", "tuple", "tupleStruct", "union":
+	case "varuint", "varint", "coins", "bool", "addr", "addrOpt", "cell", "slice", "builder", "nullable", "tupleAny", "lispList", "unknown", "struct", "array", "cellOf", "map", "tuple", "tupleStruct", "union":
 		baseType := g.typeForResult(decl.Target)
 		base.ResultDecode = func(target string, index uint, errReturn string) []string {
 			tmp := "decoded" + strconv.Itoa(int(index)) + "Base"

@@ -30,6 +30,8 @@ func main() {
 		logger.Fatal().Msg("missing ABI path, pass -abi <file> or positional file")
 	}
 
+	logger.Info().Str("abi", *abiPath).Msg("generating...")
+
 	result, err := GenerateFile(*abiPath, Options{
 		PackageName: *pkgName,
 		Strict:      *strict,
@@ -62,7 +64,7 @@ func main() {
 		logger.Warn().
 			Str("type", custom.TypeName).
 			Str("functions", strings.Join(setters, ", ")).
-			Msg("custom pack/unpack must be assigned manually")
+			Msg("ABI contains custom pack/unpack types, they should be assigned manually before usage, use functions to assign in your code")
 	}
 
 	if *outPath == "" {

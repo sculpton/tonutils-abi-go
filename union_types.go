@@ -48,8 +48,9 @@ func (g *generator) unionTypeForStack(typ abiType, suggestedName string) typeInf
 		return unsupportedStack("union contains unsupported stack variant")
 	}
 	name := g.ensureUnionType(typ, suggestedName, variants, false, true)
+	mayFail := g.stackUnionEncodingMayFail(typ.Items)
 	if _, ok := g.unionInterfaceVariants(typ, suggestedName); ok {
-		return typeInfo{
+		info := typeInfo{
 			GoType:    name,
 			Supported: true,
 			Kind:      "union",
@@ -59,8 +60,15 @@ func (g *generator) unionTypeForStack(typ abiType, suggestedName string) typeInf
 			},
 			Zero: "nil",
 		}
+		if mayFail {
+			info.StackErr = true
+			info.StackErrExpr = func(value string) string {
+				return fmt.Sprintf("stack%sErr(%s)", name, value)
+			}
+		}
+		return info
 	}
-	return typeInfo{
+	info := typeInfo{
 		GoType:    "*" + name,
 		Supported: true,
 		Kind:      "union",
@@ -69,6 +77,13 @@ func (g *generator) unionTypeForStack(typ abiType, suggestedName string) typeInf
 		},
 		Zero: "nil",
 	}
+	if mayFail {
+		info.StackErr = true
+		info.StackErrExpr = func(value string) string {
+			return fmt.Sprintf("stack%sErr(%s)", name, value)
+		}
+	}
+	return info
 }
 
 func (g *generator) unionTypeForResult(typ abiType, suggestedName string) typeInfo {
@@ -232,6 +247,15 @@ func (g *generator) unionInterfaceStackVariants(typ abiType, suggestedName strin
 	return variants, true
 }
 
+func (g *generator) stackUnionEncodingMayFail(items []abiType) bool {
+	for _, item := range items {
+		if g.stackParamEncodingMayFail(item) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *generator) ensureUnionType(typ abiType, suggestedName string, variants []unionVariantInfo, includeTLB, includeStack bool) string {
 	name := g.generatedName("Union", suggestedName, typ)
 	if g.generatedTypeSet[name] {
@@ -340,49 +364,89 @@ func (g *generator) writeInterfaceStackUnionMethods(dst *bytes.Buffer, name stri
 			stackWidth = variant.StackWidth + 1
 		}
 	}
-	fmt.Fprintf(dst, "func stack%s(union %s) []any {\n", name, name)
-	dst.WriteString("\tif union == nil {\n")
-	dst.WriteString("\t\treturn nil\n")
-	dst.WriteString("\t}\n")
-	dst.WriteString("\tswitch value := union.(type) {\n")
-	for _, variant := range variants {
-		info := g.typeForStack(items[variant.Index])
-		fmt.Fprintf(dst, "\tcase %s:\n", variant.GoType)
-		fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
-		for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
-			dst.WriteString("\t\tout = append(out, nil)\n")
-		}
-		if info.Supported {
-			for _, line := range g.appendStackValueLines(items[variant.Index], "out", "&value") {
-				fmt.Fprintf(dst, "\t\t%s\n", line)
+	mayFail := g.stackUnionEncodingMayFail(items)
+	if !mayFail {
+		fmt.Fprintf(dst, "func stack%s(union %s) []any {\n", name, name)
+		dst.WriteString("\tif union == nil {\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch value := union.(type) {\n")
+		for _, variant := range variants {
+			info := g.typeForStack(items[variant.Index])
+			fmt.Fprintf(dst, "\tcase %s:\n", variant.GoType)
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
 			}
-		} else {
-			dst.WriteString("\t\tout = append(out, value)\n")
-		}
-		fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
-		dst.WriteString("\t\treturn out\n")
-		fmt.Fprintf(dst, "\tcase *%s:\n", variant.GoType)
-		dst.WriteString("\t\tif value == nil {\n")
-		dst.WriteString("\t\t\treturn nil\n")
-		dst.WriteString("\t\t}\n")
-		fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
-		for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
-			dst.WriteString("\t\tout = append(out, nil)\n")
-		}
-		if info.Supported {
-			for _, line := range g.appendStackValueLines(items[variant.Index], "out", "value") {
-				fmt.Fprintf(dst, "\t\t%s\n", line)
+			if info.Supported {
+				for _, line := range g.appendStackValueLines(items[variant.Index], "out", "&value") {
+					fmt.Fprintf(dst, "\t\t%s\n", line)
+				}
+			} else {
+				dst.WriteString("\t\tout = append(out, value)\n")
 			}
-		} else {
-			dst.WriteString("\t\tout = append(out, value)\n")
+			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+			dst.WriteString("\t\treturn out\n")
+			fmt.Fprintf(dst, "\tcase *%s:\n", variant.GoType)
+			dst.WriteString("\t\tif value == nil {\n")
+			dst.WriteString("\t\t\treturn nil\n")
+			dst.WriteString("\t\t}\n")
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
+			}
+			if info.Supported {
+				for _, line := range g.appendStackValueLines(items[variant.Index], "out", "value") {
+					fmt.Fprintf(dst, "\t\t%s\n", line)
+				}
+			} else {
+				dst.WriteString("\t\tout = append(out, value)\n")
+			}
+			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+			dst.WriteString("\t\treturn out\n")
 		}
-		fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
-		dst.WriteString("\t\treturn out\n")
+		dst.WriteString("\tdefault:\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("}\n\n")
 	}
-	dst.WriteString("\tdefault:\n")
-	dst.WriteString("\t\treturn nil\n")
-	dst.WriteString("\t}\n")
-	dst.WriteString("}\n\n")
+
+	if mayFail {
+		fmt.Fprintf(dst, "func stack%sErr(union %s) ([]any, error) {\n", name, name)
+		dst.WriteString("\tif union == nil {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch value := union.(type) {\n")
+		for _, variant := range variants {
+			fmt.Fprintf(dst, "\tcase %s:\n", variant.GoType)
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
+			}
+			for _, line := range g.appendStackValueLinesErr(items[variant.Index], "out", "&value", unexportedName(variant.GoType)+"Stack") {
+				fmt.Fprintf(dst, "\t\t%s\n", line)
+			}
+			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+			dst.WriteString("\t\treturn out, nil\n")
+			fmt.Fprintf(dst, "\tcase *%s:\n", variant.GoType)
+			dst.WriteString("\t\tif value == nil {\n")
+			dst.WriteString("\t\t\treturn nil, nil\n")
+			dst.WriteString("\t\t}\n")
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
+			}
+			for _, line := range g.appendStackValueLinesErr(items[variant.Index], "out", "value", unexportedName(variant.GoType)+"Stack") {
+				fmt.Fprintf(dst, "\t\t%s\n", line)
+			}
+			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+			dst.WriteString("\t\treturn out, nil\n")
+		}
+		dst.WriteString("\tdefault:\n")
+		fmt.Fprintf(dst, "\t\treturn nil, fmt.Errorf(\"unknown %s stack union value %%T\", union)\n", name)
+		dst.WriteString("\t}\n")
+		dst.WriteString("}\n\n")
+	}
 
 	fmt.Fprintf(dst, "func decode%sStackUnion(values []any) (%s, error) {\n", name, name)
 	fmt.Fprintf(dst, "\tif len(values) < %d {\n", stackWidth)
@@ -496,38 +560,71 @@ func (g *generator) writeStackUnionMethods(dst *bytes.Buffer, name string, varia
 			stackWidth = variant.StackWidth + 1
 		}
 	}
-	fmt.Fprintf(dst, "func stack%s(union *%s) []any {\n", name, name)
-	dst.WriteString("\tif union == nil {\n")
-	dst.WriteString("\t\treturn nil\n")
-	dst.WriteString("\t}\n")
-	dst.WriteString("\tswitch union.Variant {\n")
-	for _, variant := range variants {
-		fmt.Fprintf(dst, "\tcase %s:\n", variant.Name)
-		fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
-		for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
-			dst.WriteString("\t\tout = append(out, nil)\n")
-		}
-		if variant.IsNull {
+	mayFail := g.stackUnionEncodingMayFail(items)
+	if !mayFail {
+		fmt.Fprintf(dst, "func stack%s(union *%s) []any {\n", name, name)
+		dst.WriteString("\tif union == nil {\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch union.Variant {\n")
+		for _, variant := range variants {
+			fmt.Fprintf(dst, "\tcase %s:\n", variant.Name)
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
+			}
+			if variant.IsNull {
+				fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+				dst.WriteString("\t\treturn out\n")
+				continue
+			}
+			writeUnionStackValueCast(dst, variant.GoType)
+			info := g.typeForStack(items[variant.Index])
+			if info.Supported {
+				for _, line := range g.appendStackValueLines(items[variant.Index], "out", "value") {
+					fmt.Fprintf(dst, "\t\t%s\n", line)
+				}
+			} else {
+				dst.WriteString("\t\tout = append(out, value)\n")
+			}
 			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
 			dst.WriteString("\t\treturn out\n")
-			continue
 		}
-		writeUnionStackValueCast(dst, variant.GoType)
-		info := g.typeForStack(items[variant.Index])
-		if info.Supported {
-			for _, line := range g.appendStackValueLines(items[variant.Index], "out", "value") {
+		dst.WriteString("\tdefault:\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if mayFail {
+		fmt.Fprintf(dst, "func stack%sErr(union *%s) ([]any, error) {\n", name, name)
+		dst.WriteString("\tif union == nil {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch union.Variant {\n")
+		for _, variant := range variants {
+			fmt.Fprintf(dst, "\tcase %s:\n", variant.Name)
+			fmt.Fprintf(dst, "\t\tout := make([]any, 0, %d)\n", stackWidth)
+			for i := 0; i < stackWidth-1-variant.StackWidth; i++ {
+				dst.WriteString("\t\tout = append(out, nil)\n")
+			}
+			if variant.IsNull {
+				fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+				dst.WriteString("\t\treturn out, nil\n")
+				continue
+			}
+			writeUnionStackValueCastErr(dst, variant.GoType)
+			for _, line := range g.appendStackValueLinesErr(items[variant.Index], "out", "value", unexportedName(variant.Name)+"Stack") {
 				fmt.Fprintf(dst, "\t\t%s\n", line)
 			}
-		} else {
-			dst.WriteString("\t\tout = append(out, value)\n")
+			fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
+			dst.WriteString("\t\treturn out, nil\n")
 		}
-		fmt.Fprintf(dst, "\t\tout = append(out, int64(%d))\n", variant.StackTypeID)
-		dst.WriteString("\t\treturn out\n")
+		dst.WriteString("\tdefault:\n")
+		fmt.Fprintf(dst, "\t\treturn nil, fmt.Errorf(\"unknown %s stack union variant %%d\", union.Variant)\n", name)
+		dst.WriteString("\t}\n")
+		dst.WriteString("}\n\n")
 	}
-	dst.WriteString("\tdefault:\n")
-	dst.WriteString("\t\treturn nil\n")
-	dst.WriteString("\t}\n")
-	dst.WriteString("}\n\n")
 
 	fmt.Fprintf(dst, "func decode%sStackUnion(values []any) (*%s, error) {\n", name, name)
 	fmt.Fprintf(dst, "\tif len(values) < %d {\n", stackWidth)
@@ -601,6 +698,32 @@ func writeUnionStackValueCast(dst *bytes.Buffer, goType string) {
 	dst.WriteString("\t\t\t\tvalue = *ptr\n")
 	dst.WriteString("\t\t\t} else {\n")
 	dst.WriteString("\t\t\t\treturn nil\n")
+	dst.WriteString("\t\t\t}\n")
+	dst.WriteString("\t\t}\n")
+}
+
+func writeUnionStackValueCastErr(dst *bytes.Buffer, goType string) {
+	if strings.HasPrefix(goType, "*") || strings.HasPrefix(goType, "[]") || goType == "any" {
+		fmt.Fprintf(dst, "\t\tvalue, ok := union.Value.(%s)\n", goType)
+		dst.WriteString("\t\tif !ok {\n")
+		if stackPointerTypeCanUseValue(goType) {
+			fmt.Fprintf(dst, "\t\t\tif raw, ok := union.Value.(%s); ok {\n", strings.TrimPrefix(goType, "*"))
+			dst.WriteString("\t\t\t\tvalue = &raw\n")
+			dst.WriteString("\t\t\t} else {\n")
+			fmt.Fprintf(dst, "\t\t\t\treturn nil, fmt.Errorf(\"union value has type %%T, want %s\", union.Value)\n", goType)
+			dst.WriteString("\t\t\t}\n")
+		} else {
+			fmt.Fprintf(dst, "\t\t\treturn nil, fmt.Errorf(\"union value has type %%T, want %s\", union.Value)\n", goType)
+		}
+		dst.WriteString("\t\t}\n")
+		return
+	}
+	fmt.Fprintf(dst, "\t\tvalue, ok := union.Value.(%s)\n", goType)
+	dst.WriteString("\t\tif !ok {\n")
+	fmt.Fprintf(dst, "\t\t\tif ptr, ok := union.Value.(*%s); ok && ptr != nil {\n", goType)
+	dst.WriteString("\t\t\t\tvalue = *ptr\n")
+	dst.WriteString("\t\t\t} else {\n")
+	fmt.Fprintf(dst, "\t\t\t\treturn nil, fmt.Errorf(\"union value has type %%T, want %s\", union.Value)\n", goType)
 	dst.WriteString("\t\t\t}\n")
 	dst.WriteString("\t\t}\n")
 }

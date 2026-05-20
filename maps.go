@@ -65,10 +65,23 @@ func (g *generator) mapTypeForTLB(typ abiType, suggestedName string) typeInfo {
 	return typeInfo{
 		GoType:    typeName,
 		TLBTag:    ".",
+		Bits:      key.Bits,
 		Supported: true,
 		Kind:      "map",
 		Zero:      typeName + "{}",
 	}
+}
+
+func mapStackFuncName(typeName string) string {
+	return unexportedName(typeName) + "StackMap"
+}
+
+func mapStackDecodeFuncName(typeName string) string {
+	return "decode" + typeName + "StackMap"
+}
+
+func mapResultLoadFuncName(typeName string) string {
+	return "load" + typeName + "ResultMap"
 }
 
 func (g *generator) mapTypeName(typ abiType, suggestedName string) string {

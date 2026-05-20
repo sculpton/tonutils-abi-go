@@ -673,16 +673,17 @@ func TestGenerateOnlyReferencedStackStructInternals(t *testing.T) {
   }
 }
 
-func TestGenerateAddressExtStackMethod(t *testing.T) {
+func TestGenerateAddressStackMethod(t *testing.T) {
   abi := abiFile{
     ContractName: "Sample",
     GetMethods: []getMethod{
       {
-        Name: "echo_ext",
+        Name: "echo_address",
         Parameters: []parameter{
           {Name: "addr", Type: abiType{Kind: "addressExt"}},
+          {Name: "maybe", Type: abiType{Kind: "addressOpt"}},
         },
-        ReturnType: abiType{Kind: "addressExt"},
+        ReturnType: abiType{Kind: "addressOpt"},
       },
     },
   }
@@ -695,13 +696,17 @@ func TestGenerateAddressExtStackMethod(t *testing.T) {
 
   text := string(src)
   for _, want := range []string{
-    "func (c *Sample) RunMethodEchoExt(ctx context.Context, block *ton.BlockIDExt, addr *address.Address) (*address.Address, error)",
-    "RunGetMethodByID(ctx, block, c.addr, uint64(0), addr)",
-    "loadAddressResult(result, 0)",
+    "func (c *Sample) RunMethodEchoAddress(ctx context.Context, block *ton.BlockIDExt, addr *address.Address, maybe *address.Address) (*address.Address, error)",
+    "RunGetMethodByID(ctx, block, c.addr, uint64(0), addr, stackOptionalAddress(maybe))",
+    "loadOptionalAddressResult(result, 0)",
+    "func stackOptionalAddress(value *address.Address) any",
   } {
     if !strings.Contains(text, want) {
       t.Fatalf("generated source does not contain %q:\n%s", want, src)
     }
+  }
+  if strings.Contains(text, "func stackAddress(") {
+    t.Fatalf("generated source unexpectedly contains stackAddress helper:\n%s", src)
   }
 }
 
@@ -2670,12 +2675,12 @@ func TestGenerateStackCompoundParamsAndResults(t *testing.T) {
     `payloadStack, err := stackCellOf\(payload\)`,
     `if err != nil \{\s+return nil, fmt\.Errorf\("encode stack parameter payload: %w", err\)\s+\}`,
     `params = append\(params, payloadStack\)`,
-    `itemsStack, err := stackCellOf\(Dict\(items\)\)`,
-    `params = append\(params, itemsStack\)`,
+    `params = append\(params, dictStackMap\(Dict\(items\)\)\)`,
     `RunGetMethodByID\(ctx, block, c\.addr, uint64\(0\), params\.\.\.\)`,
     `type Reply struct \{\s+Values\s+\[\]uint8\s+MaybeFlag\s+\*bool\s+Payload\s+Point\s+Items\s+Items\s+\}`,
     `out\.Values = make\(\[\]uint8, 0, len\(replyValuesTuple\)\)`,
     `tlb\.Parse\(&out\.Payload, replyPayloadCell\)`,
+    `decodeDictStackMap\(values\[3\]\)`,
     `out\.Items = Items\(replyItemsAlias\)`,
   } {
     if !regexp.MustCompile(want).Match(src) {

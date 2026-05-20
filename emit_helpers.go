@@ -8,30 +8,41 @@ import (
 type helperID string
 
 const (
-	helperStackBits         helperID = "stackBits"
-	helperLoadBits          helperID = "loadBits"
-	helperBool              helperID = "bool"
-	helperLoadAddr          helperID = "loadAddr"
-	helperStackString       helperID = "stackString"
-	helperLoadString        helperID = "loadString"
-	helperDecodeInt         helperID = "decodeInt"
-	helperDecodeBool        helperID = "decodeBool"
-	helperDecodeAddr        helperID = "decodeAddr"
-	helperDecodeCell        helperID = "decodeCell"
-	helperDecodeSlice       helperID = "decodeSlice"
-	helperDecodeBuilder     helperID = "decodeBuilder"
-	helperDecodeBits        helperID = "decodeBits"
-	helperDecodeString      helperID = "decodeString"
-	helperDecodeTuple       helperID = "decodeTuple"
-	helperDecodeList        helperID = "decodeList"
-	helperStackList         helperID = "stackList"
-	helperStackArray        helperID = "stackArray"
-	helperNullablePtr       helperID = "nullablePtr"
-	helperNullableValue     helperID = "nullableValue"
-	helperWideNullablePtr   helperID = "wideNullablePtr"
-	helperWideNullableValue helperID = "wideNullableValue"
-	helperStackCell         helperID = "stackCell"
-	helperBigIntLiteral     helperID = "bigIntLiteral"
+	helperStackBits            helperID = "stackBits"
+	helperLoadBits             helperID = "loadBits"
+	helperBool                 helperID = "bool"
+	helperLoadAddr             helperID = "loadAddr"
+	helperLoadOptionalAddr     helperID = "loadOptionalAddr"
+	helperStackOptionalAddr    helperID = "stackOptionalAddr"
+	helperStackString          helperID = "stackString"
+	helperLoadString           helperID = "loadString"
+	helperDecodeInt            helperID = "decodeInt"
+	helperDecodeBool           helperID = "decodeBool"
+	helperDecodeAddr           helperID = "decodeAddr"
+	helperDecodeOptionalAddr   helperID = "decodeOptionalAddr"
+	helperDecodeCell           helperID = "decodeCell"
+	helperDecodeSlice          helperID = "decodeSlice"
+	helperDecodeBuilder        helperID = "decodeBuilder"
+	helperDecodeBits           helperID = "decodeBits"
+	helperDecodeString         helperID = "decodeString"
+	helperDecodeTuple          helperID = "decodeTuple"
+	helperDecodeList           helperID = "decodeList"
+	helperStackList            helperID = "stackList"
+	helperStackListErr         helperID = "stackListErr"
+	helperStackArray           helperID = "stackArray"
+	helperStackArrayErr        helperID = "stackArrayErr"
+	helperStackSingleValue     helperID = "stackSingleValue"
+	helperNullablePtr          helperID = "nullablePtr"
+	helperNullablePtrErr       helperID = "nullablePtrErr"
+	helperNullableValue        helperID = "nullableValue"
+	helperNullableValueErr     helperID = "nullableValueErr"
+	helperWideNullablePtr      helperID = "wideNullablePtr"
+	helperWideNullablePtrErr   helperID = "wideNullablePtrErr"
+	helperWideNullableValue    helperID = "wideNullableValue"
+	helperWideNullableValueErr helperID = "wideNullableValueErr"
+	helperStackCell            helperID = "stackCell"
+	helperMustStackCell        helperID = "mustStackCell"
+	helperBigIntLiteral        helperID = "bigIntLiteral"
 )
 
 type helperRegistry map[helperID]bool
@@ -70,6 +81,11 @@ func (g *generator) useDecodeStackBool() {
 func (g *generator) useDecodeStackAddress() {
 	g.useHelper(helperDecodeAddr)
 	g.useDecodeStackSlice()
+}
+
+func (g *generator) useDecodeStackOptionalAddress() {
+	g.useHelper(helperDecodeOptionalAddr)
+	g.useDecodeStackAddress()
 }
 
 func (g *generator) useDecodeStackCell() {
@@ -161,6 +177,41 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("}\n\n")
 	}
 
+	if g.hasHelper(helperLoadOptionalAddr) {
+		g.useImport("github.com/xssnick/tonutils-go/address")
+		dst.WriteString("func loadOptionalAddressResult(result *ton.ExecutionResult, index uint) (*address.Address, error) {\n")
+		dst.WriteString("\tisNil, err := result.IsNil(index)\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tif isNil {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tslice, err := result.Slice(index)\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\taddr, err := slice.LoadAddr()\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tif addr == nil || addr.IsAddrNone() {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn addr, nil\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperStackOptionalAddr) {
+		g.useImport("github.com/xssnick/tonutils-go/address")
+		dst.WriteString("func stackOptionalAddress(value *address.Address) any {\n")
+		dst.WriteString("\tif value == nil {\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn value\n")
+		dst.WriteString("}\n\n")
+	}
+
 	if g.hasHelper(helperStackString) {
 		g.useImport("github.com/xssnick/tonutils-go/tvm/cell")
 		dst.WriteString("func stackString(value string) *cell.Slice {\n")
@@ -210,6 +261,23 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("\t\treturn nil, err\n")
 		dst.WriteString("\t}\n")
 		dst.WriteString("\treturn slice.LoadAddr()\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperDecodeOptionalAddr) {
+		g.useImport("github.com/xssnick/tonutils-go/address")
+		dst.WriteString("func decodeStackOptionalAddress(value any) (*address.Address, error) {\n")
+		dst.WriteString("\tif value == nil {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\taddr, err := decodeStackAddress(value)\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tif addr == nil || addr.IsAddrNone() {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn addr, nil\n")
 		dst.WriteString("}\n\n")
 	}
 
@@ -312,6 +380,20 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("}\n\n")
 	}
 
+	if g.hasHelper(helperStackListErr) {
+		dst.WriteString("func stackLispListErr[T any](values []T, encode func(T) (any, error)) (any, error) {\n")
+		dst.WriteString("\tvar out any\n")
+		dst.WriteString("\tfor i := len(values) - 1; i >= 0; i-- {\n")
+		dst.WriteString("\t\tvalue, err := encode(values[i])\n")
+		dst.WriteString("\t\tif err != nil {\n")
+		dst.WriteString("\t\t\treturn nil, err\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t\tout = []any{value, out}\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn out, nil\n")
+		dst.WriteString("}\n\n")
+	}
+
 	if g.hasHelper(helperStackArray) {
 		dst.WriteString("func stackArray[T any](values []T, encode func(T) any) []any {\n")
 		dst.WriteString("\tout := make([]any, 0, len(values))\n")
@@ -322,10 +404,42 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("}\n\n")
 	}
 
+	if g.hasHelper(helperStackArrayErr) {
+		dst.WriteString("func stackArrayErr[T any](values []T, encode func(T) (any, error)) ([]any, error) {\n")
+		dst.WriteString("\tout := make([]any, 0, len(values))\n")
+		dst.WriteString("\tfor _, value := range values {\n")
+		dst.WriteString("\t\tencoded, err := encode(value)\n")
+		dst.WriteString("\t\tif err != nil {\n")
+		dst.WriteString("\t\t\treturn nil, err\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t\tout = append(out, encoded)\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn out, nil\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperStackSingleValue) {
+		dst.WriteString("func stackSingleValue(value any, err error) ([]any, error) {\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn []any{value}, nil\n")
+		dst.WriteString("}\n\n")
+	}
+
 	if g.hasHelper(helperNullablePtr) {
 		dst.WriteString("func stackNullablePtr[T any](value *T, encode func(T) any) any {\n")
 		dst.WriteString("\tif value == nil {\n")
 		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn encode(*value)\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperNullablePtrErr) {
+		dst.WriteString("func stackNullablePtrErr[T any](value *T, encode func(T) (any, error)) (any, error) {\n")
+		dst.WriteString("\tif value == nil {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
 		dst.WriteString("\t}\n")
 		dst.WriteString("\treturn encode(*value)\n")
 		dst.WriteString("}\n\n")
@@ -348,6 +462,23 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("}\n\n")
 	}
 
+	if g.hasHelper(helperNullableValueErr) {
+		g.useImport("reflect")
+		dst.WriteString("func stackNullableValueErr[T any](value T, encode func(T) (any, error)) (any, error) {\n")
+		dst.WriteString("\trv := reflect.ValueOf(value)\n")
+		dst.WriteString("\tif !rv.IsValid() {\n")
+		dst.WriteString("\t\treturn nil, nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch rv.Kind() {\n")
+		dst.WriteString("\tcase reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:\n")
+		dst.WriteString("\t\tif rv.IsNil() {\n")
+		dst.WriteString("\t\t\treturn nil, nil\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn encode(value)\n")
+		dst.WriteString("}\n\n")
+	}
+
 	if g.hasHelper(helperWideNullablePtr) {
 		dst.WriteString("func stackWideNullablePtr[T any](value *T, stackWidth int, stackTypeID int64, encode func(T) []any) []any {\n")
 		dst.WriteString("\tif value == nil {\n")
@@ -359,6 +490,23 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("\t}\n")
 		dst.WriteString("\tout := encode(*value)\n")
 		dst.WriteString("\treturn append(out, stackTypeID)\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperWideNullablePtrErr) {
+		dst.WriteString("func stackWideNullablePtrErr[T any](value *T, stackWidth int, stackTypeID int64, encode func(T) ([]any, error)) ([]any, error) {\n")
+		dst.WriteString("\tif value == nil {\n")
+		dst.WriteString("\t\tout := make([]any, 0, stackWidth)\n")
+		dst.WriteString("\t\tfor i := 0; i < stackWidth-1; i++ {\n")
+		dst.WriteString("\t\t\tout = append(out, nil)\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t\treturn append(out, int64(0)), nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tout, err := encode(*value)\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn append(out, stackTypeID), nil\n")
 		dst.WriteString("}\n\n")
 	}
 
@@ -388,7 +536,36 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("}\n\n")
 	}
 
-	if g.hasHelper(helperStackCell) {
+	if g.hasHelper(helperWideNullableValueErr) {
+		g.useImport("reflect")
+		dst.WriteString("func stackWideNullableValueErr[T any](value T, stackWidth int, stackTypeID int64, encode func(T) ([]any, error)) ([]any, error) {\n")
+		dst.WriteString("\trv := reflect.ValueOf(value)\n")
+		dst.WriteString("\tif !rv.IsValid() {\n")
+		dst.WriteString("\t\tout := make([]any, 0, stackWidth)\n")
+		dst.WriteString("\t\tfor i := 0; i < stackWidth-1; i++ {\n")
+		dst.WriteString("\t\t\tout = append(out, nil)\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t\treturn append(out, int64(0)), nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tswitch rv.Kind() {\n")
+		dst.WriteString("\tcase reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:\n")
+		dst.WriteString("\t\tif rv.IsNil() {\n")
+		dst.WriteString("\t\t\tout := make([]any, 0, stackWidth)\n")
+		dst.WriteString("\t\t\tfor i := 0; i < stackWidth-1; i++ {\n")
+		dst.WriteString("\t\t\t\tout = append(out, nil)\n")
+		dst.WriteString("\t\t\t}\n")
+		dst.WriteString("\t\t\treturn append(out, int64(0)), nil\n")
+		dst.WriteString("\t\t}\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tout, err := encode(value)\n")
+		dst.WriteString("\tif err != nil {\n")
+		dst.WriteString("\t\treturn nil, err\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn append(out, stackTypeID), nil\n")
+		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperStackCell) || g.hasHelper(helperMustStackCell) {
 		g.useImport("github.com/xssnick/tonutils-go/tlb")
 		g.useImport("github.com/xssnick/tonutils-go/tvm/cell")
 		dst.WriteString("func stackCellOf(value any) (*cell.Cell, error) {\n")
@@ -401,6 +578,9 @@ func (g *generator) writeHelpers(dst *bytes.Buffer) {
 		dst.WriteString("\t}\n")
 		dst.WriteString("\treturn c, nil\n")
 		dst.WriteString("}\n\n")
+	}
+
+	if g.hasHelper(helperMustStackCell) {
 		dst.WriteString("func mustStackCellOf(value any) *cell.Cell {\n")
 		dst.WriteString("\tc, err := stackCellOf(value)\n")
 		dst.WriteString("\tif err != nil {\n")
@@ -456,6 +636,39 @@ func (g *generator) writeMapTypes(dst *bytes.Buffer) {
 		fmt.Fprintf(dst, "\t\tm.Dict = cell.NewDict(%d)\n", spec.KeyBits)
 		dst.WriteString("\t}\n")
 		dst.WriteString("\treturn m.Dict\n")
+		dst.WriteString("}\n\n")
+
+		fmt.Fprintf(dst, "func %s(value %s) *cell.Cell {\n", mapStackFuncName(spec.TypeName), spec.TypeName)
+		dst.WriteString("\tif value.Dict == nil || value.Dict.IsEmpty() {\n")
+		dst.WriteString("\t\treturn nil\n")
+		dst.WriteString("\t}\n")
+		dst.WriteString("\treturn value.Dict.AsCell()\n")
+		dst.WriteString("}\n\n")
+
+		fmt.Fprintf(dst, "func %s(value any) (%s, error) {\n", mapStackDecodeFuncName(spec.TypeName), spec.TypeName)
+		dst.WriteString("\tif value == nil {\n")
+		fmt.Fprintf(dst, "\t\treturn %s{Dict: cell.NewDict(%d)}, nil\n", spec.TypeName, spec.KeyBits)
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tc, ok := value.(*cell.Cell)\n")
+		dst.WriteString("\tif !ok {\n")
+		fmt.Fprintf(dst, "\t\treturn %s{}, fmt.Errorf(\"expected stack dict cell, got %%T\", value)\n", spec.TypeName)
+		dst.WriteString("\t}\n")
+		fmt.Fprintf(dst, "\treturn %s{Dict: c.AsDict(%d)}, nil\n", spec.TypeName, spec.KeyBits)
+		dst.WriteString("}\n\n")
+
+		fmt.Fprintf(dst, "func %s(result *ton.ExecutionResult, index uint) (%s, error) {\n", mapResultLoadFuncName(spec.TypeName), spec.TypeName)
+		dst.WriteString("\tisNil, err := result.IsNil(index)\n")
+		dst.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(dst, "\t\treturn %s{}, err\n", spec.TypeName)
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tif isNil {\n")
+		fmt.Fprintf(dst, "\t\treturn %s{Dict: cell.NewDict(%d)}, nil\n", spec.TypeName, spec.KeyBits)
+		dst.WriteString("\t}\n")
+		dst.WriteString("\tc, err := result.Cell(index)\n")
+		dst.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(dst, "\t\treturn %s{}, err\n", spec.TypeName)
+		dst.WriteString("\t}\n")
+		fmt.Fprintf(dst, "\treturn %s{Dict: c.AsDict(%d)}, nil\n", spec.TypeName, spec.KeyBits)
 		dst.WriteString("}\n\n")
 
 		keyToCell := unexportedName(spec.TypeName) + "KeyToCell"

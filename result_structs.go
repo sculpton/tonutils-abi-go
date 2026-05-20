@@ -342,9 +342,12 @@ func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target
 	case "string":
 		g.useDecodeStackString()
 		return directDecodeLines(target, fmt.Sprintf("decodeStackString(%s)", source), errReturn)
-	case "address", "addressExt", "addressOpt", "addressAny":
+	case "address", "addressExt", "addressAny":
 		g.useDecodeStackAddress()
 		return directDecodeLines(target, fmt.Sprintf("decodeStackAddress(%s)", source), errReturn)
+	case "addressOpt":
+		g.useDecodeStackOptionalAddress()
+		return directDecodeLines(target, fmt.Sprintf("decodeStackOptionalAddress(%s)", source), errReturn)
 	case "bitsN":
 		g.useDecodeStackBits()
 		return directDecodeLines(target, fmt.Sprintf("decodeStackBits(%s, %d)", source, typ.N), errReturn)
@@ -499,17 +502,7 @@ func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target
 		if !info.Supported {
 			return []string{fmt.Sprintf("// TODO: unsupported stack value %s: %s.", target, info.Reason)}
 		}
-		g.useImport("github.com/xssnick/tonutils-go/tlb")
-		g.useDecodeStackCell()
-		return []string{
-			fmt.Sprintf("%s, err := decodeStackCell(%s)", temp+"Cell", source),
-			"if err != nil {",
-			fmt.Sprintf("\treturn %s, err", errReturn),
-			"}",
-			fmt.Sprintf("if err := tlb.Parse(&%s, %sCell); err != nil {", target, temp),
-			fmt.Sprintf("\treturn %s, err", errReturn),
-			"}",
-		}
+		return directDecodeLines(target, fmt.Sprintf("%s(%s)", mapStackDecodeFuncName(info.GoType), source), errReturn)
 	case "union":
 		info := g.unionTypeForResult(typ, suggestedName)
 		if !info.Supported {
