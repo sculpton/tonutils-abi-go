@@ -215,7 +215,7 @@ func (g *generator) stackDecodeNullableDeclaredType(inner abiType, declared type
 	if stackWidth == nil || stackTypeID == nil {
 		source := fmt.Sprintf("%s[%d]", values, offset)
 		lines := []string{fmt.Sprintf("if %s == nil {", source), fmt.Sprintf("\t%s = nil", target), "} else {"}
-		for _, line := range g.rawResultDecodeLinesNamed(inner, declaredStackTypeName(declared.GoType), target, source, errReturn, temp+"Inner") {
+		for _, line := range g.rawResultDecodeLinesNamed(inner, declaredStackTypeName(declared.GoType), target, source, errReturn, temp+"Inner", true) {
 			lines = append(lines, "\t"+line)
 		}
 		lines = append(lines, "}")
@@ -282,10 +282,10 @@ func decodeLinesNeedErrVar(lines []string) bool {
 }
 
 func (g *generator) rawResultDecodeLines(typ abiType, target, source, errReturn, temp string) []string {
-	return g.rawResultDecodeLinesNamed(typ, "", target, source, errReturn, temp)
+	return g.rawResultDecodeLinesNamed(typ, "", target, source, errReturn, temp, false)
 }
 
-func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target, source, errReturn, temp string) []string {
+func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target, source, errReturn, temp string, isNullalbe bool) []string {
 	info := g.typeForResultNamed(typ, suggestedName)
 	if !info.Supported {
 		return []string{fmt.Sprintf("// TODO: unsupported stack value %s: %s.", target, info.Reason)}
@@ -437,7 +437,7 @@ func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target
 			return []string{fmt.Sprintf("// TODO: unsupported stack value %s: unknown alias %s.", target, typ.AliasName)}
 		}
 		if aliasDecodesDirectlyThroughTarget(decl.Target) {
-			return g.rawResultDecodeLinesNamed(decl.Target, typ.AliasName, target, source, errReturn, temp)
+			return g.rawResultDecodeLinesNamed(decl.Target, typ.AliasName, target, source, errReturn, temp, isNullalbe)
 		}
 		base := g.typeForResult(decl.Target)
 		if !base.Supported {
@@ -449,7 +449,7 @@ func (g *generator) rawResultDecodeLinesNamed(typ abiType, suggestedName, target
 			lines = append(lines, fmt.Sprintf("var %s %s", temp+"Alias", base.GoType))
 		}
 		lines = append(lines, g.rawResultDecodeLines(decl.Target, temp+"Alias", source, errReturn, temp+"Base")...)
-		lines = append(lines, fmt.Sprintf("%s = %s", target, aliasConversionExpr(aliasName, base, temp+"Alias")))
+		lines = append(lines, fmt.Sprintf("%s = %s", target, aliasConversionExpr(aliasName, base, temp+"Alias", isNullalbe)))
 		return lines
 	case "EnumRef":
 		decl, ok := g.enums[typ.EnumName]
@@ -576,7 +576,7 @@ func (g *generator) stackDecodeLinesNamed(typ abiType, suggestedName, target, va
 			lines = append(lines, fmt.Sprintf("var %s %s", baseTarget, base.GoType))
 		}
 		lines = append(lines, g.stackDecodeLines(decl.Target, baseTarget, values, offset, errReturn, temp+"Base")...)
-		lines = append(lines, fmt.Sprintf("%s = %s", target, aliasConversionExpr(aliasName, base, baseTarget)))
+		lines = append(lines, fmt.Sprintf("%s = %s", target, aliasConversionExpr(aliasName, base, baseTarget, false)))
 		return lines
 	case "EnumRef":
 		decl, ok := g.enums[typ.EnumName]

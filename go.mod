@@ -1,6 +1,6 @@
 module github.com/xssnick/tonutils-abi-go
 
-go 1.25.6
+go 1.26
 
 require github.com/rs/zerolog v1.35.1
 

@@ -3074,7 +3074,7 @@ func writeGeneratedWrapperModule(t *testing.T, dir string) {
 
 	const mod = `module generatedwrapper
 
-go 1.25.6
+go 1.26
 
 require github.com/xssnick/tonutils-go v1.17.0
 `

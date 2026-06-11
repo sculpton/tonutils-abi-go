@@ -169,14 +169,14 @@ func (g *generator) aliasTypeForResult(typ abiType) typeInfo {
 				"if err != nil {",
 				fmt.Sprintf("\treturn %s, err", errReturn),
 				"}",
-				fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, fmt.Sprintf("bits%d", index))),
+				fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, fmt.Sprintf("bits%d", index), false)),
 			}
 		}
 	case "int":
 		baseType := g.resultIntType(base.Bits, strings.HasPrefix(decl.Target.Kind, "int"))
 		base.ResultDecode = func(target string, index uint, errReturn string) []string {
 			lines := baseType.ResultDecode("decoded"+strconv.Itoa(int(index)), index, errReturn)
-			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, fmt.Sprintf("decoded%d", index))))
+			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, fmt.Sprintf("decoded%d", index), false)))
 			return lines
 		}
 	case "varuint", "varint", "coins", "bool", "addr", "addrOpt", "cell", "slice", "builder", "nullable", "tupleAny", "lispList", "unknown", "struct", "array", "cellOf", "map", "tuple", "tupleStruct", "union":
@@ -184,7 +184,7 @@ func (g *generator) aliasTypeForResult(typ abiType) typeInfo {
 		base.ResultDecode = func(target string, index uint, errReturn string) []string {
 			tmp := "decoded" + strconv.Itoa(int(index)) + "Base"
 			lines := baseType.ResultDecode(tmp, index, errReturn)
-			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, tmp)))
+			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, tmp, false)))
 			return lines
 		}
 	case "string":
@@ -192,7 +192,7 @@ func (g *generator) aliasTypeForResult(typ abiType) typeInfo {
 		base.ResultDecode = func(target string, index uint, errReturn string) []string {
 			tmp := "decoded" + strconv.Itoa(int(index))
 			lines := baseType.ResultDecode(tmp, index, errReturn)
-			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, tmp)))
+			lines = append(lines, fmt.Sprintf("%s %s %s", target, assignOp(target), aliasConversionExpr(aliasName, targetInfo, tmp, false)))
 			return lines
 		}
 	default:
@@ -216,11 +216,16 @@ func aliasGoTypeForStackOrResult(aliasName string, base typeInfo) string {
 	}
 }
 
-func aliasConversionExpr(aliasName string, base typeInfo, value string) string {
+func aliasConversionExpr(aliasName string, base typeInfo, value string, isNullable bool) string {
 	goType := aliasGoTypeForStackOrResult(aliasName, base)
 	if strings.HasPrefix(goType, "*") {
 		return fmt.Sprintf("(%s)(%s)", goType, value)
 	}
+
+	if isNullable {
+		return fmt.Sprintf("new(%s(%s))", goType, value)
+	}
+
 	return fmt.Sprintf("%s(%s)", goType, value)
 }
 
