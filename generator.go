@@ -37,7 +37,7 @@ func newDeclarationRoles() declarationRoles {
 }
 
 type generator struct {
-	abi                  abiFile
+	abi                  []abiFile
 	packageName          string
 	aliases              map[string]declaration
 	enums                map[string]declaration
@@ -45,27 +45,26 @@ type generator struct {
 	structInstantiations map[int]abiStructInstantiation
 	aliasInstantiations  map[int]abiAliasInstantiation
 	declarationRoles
-	stackStructEncoders     map[string]bool
-	stackResultDecoders     map[string]bool
-	imports                 map[string]bool
-	resultTypes             []string
-	generatedTypes          []string
-	generatedTypeSet        map[string]bool
-	generatedTypeNames      map[string]string
-	generatedHelperSet      map[string]bool
-	genericInstanceNames    map[string]string
-	genericInProgress       map[string]bool
-	mapTypes                []mapSpec
-	mapTypeNames            map[string]string
-	mapTypeSet              map[string]bool
-	names                   *nameAllocator
-	contractName            string
-	contractAPIName         string
-	contractConstructorName string
-	customSerializers       []CustomSerializer
-	strict                  bool
-	diagnostics             []Diagnostic
-	helpers                 helperRegistry
+	stackStructEncoders  map[string]bool
+	stackResultDecoders  map[string]bool
+	imports              map[string]bool
+	resultTypes          []string
+	generatedTypes       []string
+	generatedTypeSet     map[string]bool
+	generatedTypeNames   map[string]string
+	generatedHelperSet   map[string]bool
+	genericInstanceNames map[string]string
+	genericInProgress    map[string]bool
+	mapTypes             []mapSpec
+	mapTypeNames         map[string]string
+	mapTypeSet           map[string]bool
+	names                *nameAllocator
+	contractNames        []string
+	contractAPIName      string
+	customSerializers    []CustomSerializer
+	strict               bool
+	diagnostics          []Diagnostic
+	helpers              helperRegistry
 }
 
 type Options struct {
@@ -87,15 +86,24 @@ func Generate(src io.Reader, opts Options) (GenerationResult, error) {
 	return GenerateJSON(data, opts)
 }
 
-func GenerateFile(path string, opts Options) (GenerationResult, error) {
-	abi, diagnostics, err := loadABIFile(path, opts.Strict)
-	if err != nil {
-		return GenerationResult{}, err
+func GenerateFile(paths []string, opts Options) (GenerationResult, error) {
+	abis := make([]abiFile, len(paths))
+	diagnostics := make([]Diagnostic, 0, len(paths))
+
+	for i, path := range paths {
+		abi, diag, err := loadABIFile(path, opts.Strict)
+		if err != nil {
+			return GenerationResult{}, err
+		}
+		if opts.Strict && len(diag) > 0 {
+			return GenerationResult{Diagnostics: diag}, newStrictDiagnosticError(diag)
+		}
+
+		abis[i] = abi
+		diagnostics = slices.Compact(slices.Concat(diagnostics, diag))
 	}
-	if opts.Strict && len(diagnostics) > 0 {
-		return GenerationResult{Diagnostics: diagnostics}, newStrictDiagnosticError(diagnostics)
-	}
-	return generateABI(abi, opts, diagnostics)
+
+	return generateABI(abis, opts, diagnostics)
 }
 
 func GenerateJSON(data []byte, opts Options) (GenerationResult, error) {
@@ -106,16 +114,16 @@ func GenerateJSON(data []byte, opts Options) (GenerationResult, error) {
 	if opts.Strict && len(diagnostics) > 0 {
 		return GenerationResult{Diagnostics: diagnostics}, newStrictDiagnosticError(diagnostics)
 	}
-	return generateABI(abi, opts, diagnostics)
+	return generateABI([]abiFile{abi}, opts, diagnostics)
 }
 
-func generateABI(abi abiFile, opts Options, diagnostics []Diagnostic) (GenerationResult, error) {
+func generateABI(abi []abiFile, opts Options, diagnostics []Diagnostic) (GenerationResult, error) {
 	g := newGenerator(abi, opts.PackageName).withStrict(opts.Strict)
 	g.diagnostics = append(g.diagnostics, diagnostics...)
 	return g.Generate()
 }
 
-func newGenerator(abi abiFile, packageName string) *generator {
+func newGenerator(abi []abiFile, packageName string) *generator {
 	g := &generator{
 		abi:                  abi,
 		packageName:          sanitizePackageName(packageName),
@@ -139,21 +147,23 @@ func newGenerator(abi abiFile, packageName string) *generator {
 		helpers:              newHelperRegistry(),
 	}
 
-	for _, decl := range abi.Declarations {
-		switch decl.Kind {
-		case "alias":
-			g.aliases[decl.Name] = decl
-		case "enum":
-			g.enums[decl.Name] = decl
-		case "struct":
-			g.structs[decl.Name] = decl
+	for v := range slices.Values(abi) {
+		for _, decl := range v.Declarations {
+			switch decl.Kind {
+			case "alias":
+				g.aliases[decl.Name] = decl
+			case "enum":
+				g.enums[decl.Name] = decl
+			case "struct":
+				g.structs[decl.Name] = decl
+			}
 		}
-	}
-	for _, inst := range abi.StructInstantiations {
-		g.structInstantiations[inst.TypeIndex] = inst
-	}
-	for _, inst := range abi.AliasInstantiations {
-		g.aliasInstantiations[inst.TypeIndex] = inst
+		for _, inst := range v.StructInstantiations {
+			g.structInstantiations[inst.TypeIndex] = inst
+		}
+		for _, inst := range v.AliasInstantiations {
+			g.aliasInstantiations[inst.TypeIndex] = inst
+		}
 	}
 
 	return g

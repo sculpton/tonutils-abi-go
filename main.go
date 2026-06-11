@@ -32,7 +32,7 @@ func main() {
 
 	logger.Info().Str("abi", *abiPath).Msg("generating...")
 
-	result, err := GenerateFile(*abiPath, Options{
+	result, err := GenerateFile(strings.Split(*abiPath, ","), Options{
 		PackageName: *pkgName,
 		Strict:      *strict,
 	})

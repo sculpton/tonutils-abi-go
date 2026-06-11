@@ -13,8 +13,10 @@ type methodParam struct {
 }
 
 func (g *generator) writeMethods(dst *bytes.Buffer) {
-	for _, method := range g.abi.GetMethods {
-		g.writeMethod(dst, g.contractName, method)
+	for i, abi := range g.abi {
+		for _, method := range abi.GetMethods {
+			g.writeMethod(dst, g.contractNames[i], method)
+		}
 	}
 }
 

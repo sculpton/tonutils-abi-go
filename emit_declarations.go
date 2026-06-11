@@ -7,21 +7,31 @@ import (
 )
 
 func (g *generator) writeDeclarations(dst *bytes.Buffer) {
-	for _, decl := range g.abi.Declarations {
-		switch decl.Kind {
-		case "alias":
-			g.writeAlias(dst, decl)
-		case "enum":
-			g.writeEnum(dst, decl)
-		case "struct":
-			g.writeStruct(dst, decl)
-		default:
-			name := exportedName(decl.Name)
-			if name == "" {
-				name = decl.Name
+	written := map[string]bool{}
+
+	for _, abi := range g.abi {
+		for _, decl := range abi.Declarations {
+			if written[decl.Name] {
+				continue
 			}
-			g.writeTODO(dst, "", "declaration %s has unsupported kind %s.", name, decl.Kind)
-			dst.WriteString("\n")
+
+			written[decl.Name] = true
+
+			switch decl.Kind {
+			case "alias":
+				g.writeAlias(dst, decl)
+			case "enum":
+				g.writeEnum(dst, decl)
+			case "struct":
+				g.writeStruct(dst, decl)
+			default:
+				name := exportedName(decl.Name)
+				if name == "" {
+					name = decl.Name
+				}
+				g.writeTODO(dst, "", "declaration %s has unsupported kind %s.", name, decl.Kind)
+				dst.WriteString("\n")
+			}
 		}
 	}
 }

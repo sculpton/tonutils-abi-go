@@ -27,7 +27,7 @@ func TestGeneratedMapConstructorUsesAllocator(t *testing.T) {
 		Storage: &abiStorage{StorageType: abiType{Kind: "AliasRef", AliasName: "U32CellMap"}},
 	}
 
-	result, err := newGenerator(abi, "sample").Generate()
+	result, err := newGenerator([]abiFile{abi}, "sample").Generate()
 	src := result.Source
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -84,7 +84,7 @@ func TestGeneratedUnionConstructorUsesAllocator(t *testing.T) {
 		Storage: &abiStorage{StorageType: abiType{Kind: "StructRef", StructName: "Message"}},
 	}
 
-	result, err := newGenerator(abi, "sample").Generate()
+	result, err := newGenerator([]abiFile{abi}, "sample").Generate()
 	src := result.Source
 	if err != nil {
 		t.Fatalf("generate: %v", err)

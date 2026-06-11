@@ -10,16 +10,18 @@ func (g *generator) writeStackResultDecoders(dst *bytes.Buffer) {
 	written := map[string]bool{}
 	for {
 		progress := false
-		for _, decl := range g.abi.Declarations {
-			if decl.Kind != "struct" || !g.stackResultDecoders[decl.Name] || written[decl.Name] {
-				continue
+		for _, abi := range g.abi {
+			for _, decl := range abi.Declarations {
+				if decl.Kind != "struct" || !g.stackResultDecoders[decl.Name] || written[decl.Name] {
+					continue
+				}
+				written[decl.Name] = true
+				if !g.stackStructResultSupported(decl) {
+					continue
+				}
+				g.writeStackResultDecoder(dst, decl)
+				progress = true
 			}
-			written[decl.Name] = true
-			if !g.stackStructResultSupported(decl) {
-				continue
-			}
-			g.writeStackResultDecoder(dst, decl)
-			progress = true
 		}
 		if !progress {
 			return
@@ -31,16 +33,18 @@ func (g *generator) writeStackStructEncoders(dst *bytes.Buffer) {
 	written := map[string]bool{}
 	for {
 		progress := false
-		for _, decl := range g.abi.Declarations {
-			if decl.Kind != "struct" || !g.stackStructEncoders[decl.Name] || written[decl.Name] {
-				continue
+		for _, abi := range g.abi {
+			for _, decl := range abi.Declarations {
+				if decl.Kind != "struct" || !g.stackStructEncoders[decl.Name] || written[decl.Name] {
+					continue
+				}
+				written[decl.Name] = true
+				if !g.stackStructEncoderSupported(decl) {
+					continue
+				}
+				g.writeStackTupleHelpers(dst, decl.Name, decl.Fields)
+				progress = true
 			}
-			written[decl.Name] = true
-			if !g.stackStructEncoderSupported(decl) {
-				continue
-			}
-			g.writeStackTupleHelpers(dst, decl.Name, decl.Fields)
-			progress = true
 		}
 		if !progress {
 			return

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -14,7 +15,9 @@ type generatedThrownError struct {
 }
 
 func (g *generator) hasThrownErrors() bool {
-	return len(g.abi.ThrownErrors) > 0
+	return slices.ContainsFunc(g.abi, func(abi abiFile) bool {
+		return len(abi.ThrownErrors) > 0
+	})
 }
 
 func (g *generator) writeThrownErrors(dst *bytes.Buffer) {
@@ -52,19 +55,30 @@ func (g *generator) writeThrownErrors(dst *bytes.Buffer) {
 }
 
 func (g *generator) thrownErrorSpecs() []generatedThrownError {
-	specs := make([]generatedThrownError, 0, len(g.abi.ThrownErrors))
-	for _, thrown := range g.abi.ThrownErrors {
-		name := thrownErrorVarName(thrown)
-		if name == "" {
-			continue
+	specs := make([]generatedThrownError, 0, len(g.abi))
+	written := map[string]bool{}
+
+	for _, abi := range g.abi {
+		for _, thrown := range abi.ThrownErrors {
+			name := thrownErrorVarName(thrown)
+			if name == "" {
+				continue
+			}
+
+			if written[name] {
+				continue
+			}
+			written[name] = true
+
+			name = g.names.uniquePackage(name, "ErrCode")
+			specs = append(specs, generatedThrownError{
+				VarName: name,
+				Message: thrownErrorMessage(thrown),
+				Code:    thrown.Code,
+			})
 		}
-		name = g.names.uniquePackage(name, "ErrCode")
-		specs = append(specs, generatedThrownError{
-			VarName: name,
-			Message: thrownErrorMessage(thrown),
-			Code:    thrown.Code,
-		})
 	}
+
 	return specs
 }
 

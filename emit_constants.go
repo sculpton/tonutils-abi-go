@@ -16,20 +16,32 @@ type constantValueInfo struct {
 }
 
 func (g *generator) writeConstants(dst *bytes.Buffer) {
-	for _, constant := range g.abi.Constants {
-		name := constantFunctionName(constant.Name)
-		if g.names != nil {
-			name = g.names.uniquePackage(name, "Const")
+	written := map[string]bool{}
+
+	for _, abi := range g.abi {
+		for _, constant := range abi.Constants {
+			if written[constant.Name] {
+				continue
+			}
+
+			written[constant.Name] = true
+
+			name := constantFunctionName(constant.Name)
+			if g.names != nil {
+				name = g.names.uniquePackage(name, "Const")
+			}
+
+			info := g.constantValueInfo(constant.Value)
+			if !info.Supported {
+				g.writeTODO(dst, "", "constant %s is not generated yet: %s.", exportedName(constant.Name), info.Reason)
+				dst.WriteString("\n")
+				continue
+			}
+
+			fmt.Fprintf(dst, "func %s() %s {\n", name, info.GoType)
+			fmt.Fprintf(dst, "\treturn %s\n", info.Expr)
+			dst.WriteString("}\n\n")
 		}
-		info := g.constantValueInfo(constant.Value)
-		if !info.Supported {
-			g.writeTODO(dst, "", "constant %s is not generated yet: %s.", exportedName(constant.Name), info.Reason)
-			dst.WriteString("\n")
-			continue
-		}
-		fmt.Fprintf(dst, "func %s() %s {\n", name, info.GoType)
-		fmt.Fprintf(dst, "\treturn %s\n", info.Expr)
-		dst.WriteString("}\n\n")
 	}
 }
 

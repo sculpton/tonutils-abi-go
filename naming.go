@@ -465,12 +465,13 @@ func (g *generator) prepareNames() {
 	if g.names == nil {
 		g.names = newNameAllocator()
 	}
-	for _, decl := range g.abi.Declarations {
-		g.names.reservePackage(exportedName(decl.Name))
+	for _, abi := range g.abi {
+		for _, decl := range abi.Declarations {
+			g.names.reservePackage(exportedName(decl.Name))
+		}
+		g.contractNames = append(g.contractNames, g.names.uniquePackage(abi.ContractName, "Contract"))
 	}
-	g.contractName = g.names.uniquePackage(g.abi.ContractName, "Contract")
 	g.contractAPIName = g.names.uniquePackage("ContractAPI", "ContractAPI")
-	g.contractConstructorName = g.names.uniquePackage("New"+g.contractName, "NewContract")
 	g.names.reserveReceiverMethod("Address")
 }
 

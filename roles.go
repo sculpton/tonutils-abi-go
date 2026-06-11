@@ -1,59 +1,62 @@
 package main
 
 func (g *generator) collectDeclarationRoles() {
-	hasTLBRoots := false
-	if g.abi.Storage != nil && !isEmptyABIType(g.abi.Storage.StorageType) {
-		hasTLBRoots = true
-		g.markTLBType(g.abi.Storage.StorageType, map[string]bool{})
-	}
-	for _, root := range g.abi.IncomingMessages {
-		if !isEmptyABIType(root.BodyType) {
-			hasTLBRoots = true
-			g.markTLBType(root.BodyType, map[string]bool{})
-		}
-	}
-	for _, root := range g.abi.IncomingExternal {
-		if !isEmptyABIType(root.BodyType) {
-			hasTLBRoots = true
-			g.markTLBType(root.BodyType, map[string]bool{})
-		}
-	}
-	for _, root := range g.abi.OutgoingMessages {
-		if !isEmptyABIType(root.BodyType) {
-			hasTLBRoots = true
-			g.markTLBType(root.BodyType, map[string]bool{})
-		}
-	}
-	for _, root := range g.abi.EmittedEvents {
-		switch {
-		case !isEmptyABIType(root.EventType):
-			hasTLBRoots = true
-			g.markTLBType(root.EventType, map[string]bool{})
-		case !isEmptyABIType(root.BodyType):
-			hasTLBRoots = true
-			g.markTLBType(root.BodyType, map[string]bool{})
-		}
-	}
+	for _, abi := range g.abi {
+		hasTLBRoots := false
 
-	for _, method := range g.abi.GetMethods {
-		for _, param := range method.Parameters {
-			g.markStackType(param.Type, map[string]bool{})
+		if abi.Storage != nil && !isEmptyABIType(abi.Storage.StorageType) {
+			hasTLBRoots = true
+			g.markTLBType(abi.Storage.StorageType, map[string]bool{})
 		}
-		g.markStackType(method.ReturnType, map[string]bool{})
-	}
-
-	if !hasTLBRoots && len(g.abi.GetMethods) == 0 {
-		for _, decl := range g.abi.Declarations {
-			if len(decl.TypeParams) > 0 {
-				continue
+		for _, root := range abi.IncomingMessages {
+			if !isEmptyABIType(root.BodyType) {
+				hasTLBRoots = true
+				g.markTLBType(root.BodyType, map[string]bool{})
 			}
-			switch decl.Kind {
-			case "alias":
-				g.tlbAliases[decl.Name] = true
-			case "enum":
-				g.tlbEnums[decl.Name] = true
-			case "struct":
-				g.tlbStructs[decl.Name] = true
+		}
+		for _, root := range abi.IncomingExternal {
+			if !isEmptyABIType(root.BodyType) {
+				hasTLBRoots = true
+				g.markTLBType(root.BodyType, map[string]bool{})
+			}
+		}
+		for _, root := range abi.OutgoingMessages {
+			if !isEmptyABIType(root.BodyType) {
+				hasTLBRoots = true
+				g.markTLBType(root.BodyType, map[string]bool{})
+			}
+		}
+		for _, root := range abi.EmittedEvents {
+			switch {
+			case !isEmptyABIType(root.EventType):
+				hasTLBRoots = true
+				g.markTLBType(root.EventType, map[string]bool{})
+			case !isEmptyABIType(root.BodyType):
+				hasTLBRoots = true
+				g.markTLBType(root.BodyType, map[string]bool{})
+			}
+		}
+
+		for _, method := range abi.GetMethods {
+			for _, param := range method.Parameters {
+				g.markStackType(param.Type, map[string]bool{})
+			}
+			g.markStackType(method.ReturnType, map[string]bool{})
+		}
+
+		if !hasTLBRoots && len(abi.GetMethods) == 0 {
+			for _, decl := range abi.Declarations {
+				if len(decl.TypeParams) > 0 {
+					continue
+				}
+				switch decl.Kind {
+				case "alias":
+					g.tlbAliases[decl.Name] = true
+				case "enum":
+					g.tlbEnums[decl.Name] = true
+				case "struct":
+					g.tlbStructs[decl.Name] = true
+				}
 			}
 		}
 	}

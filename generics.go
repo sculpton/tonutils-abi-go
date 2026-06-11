@@ -9,66 +9,69 @@ import (
 type genericEnv map[string]abiType
 
 func (g *generator) monomorphizeGenerics() {
-	if len(g.abi.Declarations) == 0 {
-		return
-	}
-
-	if g.abi.Storage != nil {
-		g.abi.Storage.StorageType = g.normalizeGenericType(g.abi.Storage.StorageType, nil)
-	}
-	for i := range g.abi.IncomingMessages {
-		g.abi.IncomingMessages[i].BodyType = g.normalizeGenericType(g.abi.IncomingMessages[i].BodyType, nil)
-	}
-	for i := range g.abi.IncomingExternal {
-		g.abi.IncomingExternal[i].BodyType = g.normalizeGenericType(g.abi.IncomingExternal[i].BodyType, nil)
-	}
-	for i := range g.abi.OutgoingMessages {
-		g.abi.OutgoingMessages[i].BodyType = g.normalizeGenericType(g.abi.OutgoingMessages[i].BodyType, nil)
-	}
-	for i := range g.abi.EmittedEvents {
-		g.abi.EmittedEvents[i].BodyType = g.normalizeGenericType(g.abi.EmittedEvents[i].BodyType, nil)
-		g.abi.EmittedEvents[i].EventType = g.normalizeGenericType(g.abi.EmittedEvents[i].EventType, nil)
-	}
-	for i := range g.abi.GetMethods {
-		for j := range g.abi.GetMethods[i].Parameters {
-			g.abi.GetMethods[i].Parameters[j].Type = g.normalizeGenericType(g.abi.GetMethods[i].Parameters[j].Type, nil)
-		}
-		g.abi.GetMethods[i].ReturnType = g.normalizeGenericType(g.abi.GetMethods[i].ReturnType, nil)
-	}
-
-	for i := 0; i < len(g.abi.Declarations); i++ {
-		decl := g.abi.Declarations[i]
-		if len(decl.TypeParams) > 0 {
+	for i := range g.abi {
+		abi := &g.abi[i]
+		if len(abi.Declarations) == 0 {
 			continue
 		}
-		g.normalizeGenericDeclaration(&decl, nil)
-		g.abi.Declarations[i] = decl
+
+		if abi.Storage != nil {
+			abi.Storage.StorageType = g.normalizeGenericType(abi, abi.Storage.StorageType, nil)
+		}
+		for j := range abi.IncomingMessages {
+			abi.IncomingMessages[j].BodyType = g.normalizeGenericType(abi, abi.IncomingMessages[j].BodyType, nil)
+		}
+		for j := range abi.IncomingExternal {
+			abi.IncomingExternal[j].BodyType = g.normalizeGenericType(abi, abi.IncomingExternal[j].BodyType, nil)
+		}
+		for j := range abi.OutgoingMessages {
+			abi.OutgoingMessages[j].BodyType = g.normalizeGenericType(abi, abi.OutgoingMessages[j].BodyType, nil)
+		}
+		for j := range abi.EmittedEvents {
+			abi.EmittedEvents[j].BodyType = g.normalizeGenericType(abi, abi.EmittedEvents[j].BodyType, nil)
+			abi.EmittedEvents[j].EventType = g.normalizeGenericType(abi, abi.EmittedEvents[j].EventType, nil)
+		}
+		for j := range abi.GetMethods {
+			for k := range abi.GetMethods[j].Parameters {
+				abi.GetMethods[j].Parameters[k].Type = g.normalizeGenericType(abi, abi.GetMethods[j].Parameters[k].Type, nil)
+			}
+			abi.GetMethods[j].ReturnType = g.normalizeGenericType(abi, abi.GetMethods[j].ReturnType, nil)
+		}
+
+		for j := 0; j < len(abi.Declarations); j++ {
+			decl := abi.Declarations[j]
+			if len(decl.TypeParams) > 0 {
+				continue
+			}
+			g.normalizeGenericDeclaration(abi, &decl, nil)
+			abi.Declarations[j] = decl
+		}
 	}
 
 	g.rebuildDeclarationMaps()
 }
 
-func (g *generator) normalizeGenericDeclaration(decl *declaration, env genericEnv) {
+func (g *generator) normalizeGenericDeclaration(abi *abiFile, decl *declaration, env genericEnv) {
 	switch decl.Kind {
 	case "alias":
-		decl.Target = g.normalizeGenericType(decl.Target, env)
+		decl.Target = g.normalizeGenericType(abi, decl.Target, env)
 		decl.TargetTypeIndex = nil
 	case "enum":
 		if decl.EncodedAs != nil {
-			encodedAs := g.normalizeGenericType(*decl.EncodedAs, env)
+			encodedAs := g.normalizeGenericType(abi, *decl.EncodedAs, env)
 			decl.EncodedAs = &encodedAs
 			decl.EncodedAsIndex = nil
 		}
 	case "struct":
 		for i := range decl.Fields {
-			decl.Fields[i].Type = g.normalizeGenericType(decl.Fields[i].Type, env)
+			decl.Fields[i].Type = g.normalizeGenericType(abi, decl.Fields[i].Type, env)
 			decl.Fields[i].TypeIndex = nil
 		}
 	}
 	decl.TypeIndex = nil
 }
 
-func (g *generator) normalizeGenericType(typ abiType, env genericEnv) abiType {
+func (g *generator) normalizeGenericType(abi *abiFile, typ abiType, env genericEnv) abiType {
 	typ.TypeArgs = append([]abiType(nil), typ.TypeArgs...)
 	typ.Items = append([]abiType(nil), typ.Items...)
 	typ.Variants = append([]abiTypeVariant(nil), typ.Variants...)
@@ -79,7 +82,7 @@ func (g *generator) normalizeGenericType(typ abiType, env genericEnv) abiType {
 	case "genericT":
 		if env != nil {
 			if bound, ok := env[typ.NameT]; ok {
-				return g.normalizeGenericType(bound, env)
+				return g.normalizeGenericType(abi, bound, env)
 			}
 		}
 		g.addDiagnostic(Diagnostic{
@@ -91,7 +94,7 @@ func (g *generator) normalizeGenericType(typ abiType, env genericEnv) abiType {
 
 	if len(typ.TypeArgs) > 0 {
 		for i := range typ.TypeArgs {
-			typ.TypeArgs[i] = g.normalizeGenericType(typ.TypeArgs[i], env)
+			typ.TypeArgs[i] = g.normalizeGenericType(abi, typ.TypeArgs[i], env)
 		}
 		typ.TypeArgIndices = nil
 	}
@@ -101,49 +104,49 @@ func (g *generator) normalizeGenericType(typ abiType, env genericEnv) abiType {
 		if len(typ.TypeArgs) > 0 {
 			if typ.Index != nil {
 				if inst, ok := g.aliasInstantiations[*typ.Index]; ok {
-					return abiType{Kind: "AliasRef", AliasName: g.instantiateCompilerGenericAlias(typ.AliasName, typ.TypeArgs, inst)}
+					return abiType{Kind: "AliasRef", AliasName: g.instantiateCompilerGenericAlias(abi, typ.AliasName, typ.TypeArgs, inst)}
 				}
 			}
-			return abiType{Kind: "AliasRef", AliasName: g.instantiateGenericAlias(typ.AliasName, typ.TypeArgs)}
+			return abiType{Kind: "AliasRef", AliasName: g.instantiateGenericAlias(abi, typ.AliasName, typ.TypeArgs)}
 		}
 	case "StructRef":
 		if len(typ.TypeArgs) > 0 {
 			if typ.Index != nil {
 				if inst, ok := g.structInstantiations[*typ.Index]; ok {
-					return abiType{Kind: "StructRef", StructName: g.instantiateCompilerGenericStruct(typ.StructName, typ.TypeArgs, inst)}
+					return abiType{Kind: "StructRef", StructName: g.instantiateCompilerGenericStruct(abi, typ.StructName, typ.TypeArgs, inst)}
 				}
 			}
-			return abiType{Kind: "StructRef", StructName: g.instantiateGenericStruct(typ.StructName, typ.TypeArgs)}
+			return abiType{Kind: "StructRef", StructName: g.instantiateGenericStruct(abi, typ.StructName, typ.TypeArgs)}
 		}
 	}
 
 	if typ.Inner != nil {
-		inner := g.normalizeGenericType(*typ.Inner, env)
+		inner := g.normalizeGenericType(abi, *typ.Inner, env)
 		typ.Inner = &inner
 		typ.InnerTypeIndex = nil
 	}
 	if typ.Key != nil {
-		key := g.normalizeGenericType(*typ.Key, env)
+		key := g.normalizeGenericType(abi, *typ.Key, env)
 		typ.Key = &key
 		typ.KeyTypeIndex = nil
 	}
 	if typ.Value != nil {
-		value := g.normalizeGenericType(*typ.Value, env)
+		value := g.normalizeGenericType(abi, *typ.Value, env)
 		typ.Value = &value
 		typ.ValueTypeIndex = nil
 	}
 	for i := range typ.Items {
-		typ.Items[i] = g.normalizeGenericType(typ.Items[i], env)
+		typ.Items[i] = g.normalizeGenericType(abi, typ.Items[i], env)
 	}
 	typ.ItemTypeIndices = nil
 	for i := range typ.Variants {
-		typ.Variants[i].Type = g.normalizeGenericType(typ.Variants[i].Type, env)
+		typ.Variants[i].Type = g.normalizeGenericType(abi, typ.Variants[i].Type, env)
 		typ.Variants[i].TypeIndex = nil
 	}
 	return typ
 }
 
-func (g *generator) instantiateGenericAlias(name string, args []abiType) string {
+func (g *generator) instantiateGenericAlias(abi *abiFile, name string, args []abiType) string {
 	decl, ok := g.aliases[name]
 	if !ok {
 		g.addDiagnostic(Diagnostic{
@@ -177,15 +180,15 @@ func (g *generator) instantiateGenericAlias(name string, args []abiType) string 
 	concrete.Name = concreteName
 	concrete.TypeParams = nil
 	concrete.TypeIndex = nil
-	concrete.Target = g.normalizeGenericType(decl.Target, bindGenericArgs(decl.TypeParams, args))
+	concrete.Target = g.normalizeGenericType(abi, decl.Target, bindGenericArgs(decl.TypeParams, args))
 	concrete.TargetTypeIndex = nil
-	g.abi.Declarations = append(g.abi.Declarations, concrete)
+	abi.Declarations = append(abi.Declarations, concrete)
 	g.aliases[concreteName] = concrete
 	delete(g.genericInProgress, key)
 	return concreteName
 }
 
-func (g *generator) instantiateGenericStruct(name string, args []abiType) string {
+func (g *generator) instantiateGenericStruct(abi *abiFile, name string, args []abiType) string {
 	decl, ok := g.structs[name]
 	if !ok {
 		g.addDiagnostic(Diagnostic{
@@ -222,16 +225,16 @@ func (g *generator) instantiateGenericStruct(name string, args []abiType) string
 	concrete.TypeIndex = nil
 	concrete.Fields = append([]field(nil), decl.Fields...)
 	for i := range concrete.Fields {
-		concrete.Fields[i].Type = g.normalizeGenericType(concrete.Fields[i].Type, genericEnv)
+		concrete.Fields[i].Type = g.normalizeGenericType(abi, concrete.Fields[i].Type, genericEnv)
 		concrete.Fields[i].TypeIndex = nil
 	}
-	g.abi.Declarations = append(g.abi.Declarations, concrete)
+	abi.Declarations = append(abi.Declarations, concrete)
 	g.structs[concreteName] = concrete
 	delete(g.genericInProgress, key)
 	return concreteName
 }
 
-func (g *generator) instantiateCompilerGenericAlias(name string, args []abiType, inst abiAliasInstantiation) string {
+func (g *generator) instantiateCompilerGenericAlias(abi *abiFile, name string, args []abiType, inst abiAliasInstantiation) string {
 	decl, ok := g.aliases[name]
 	if !ok {
 		g.addDiagnostic(Diagnostic{
@@ -272,15 +275,15 @@ func (g *generator) instantiateCompilerGenericAlias(name string, args []abiType,
 	concrete.Name = concreteName
 	concrete.TypeParams = nil
 	concrete.TypeIndex = nil
-	concrete.Target = g.normalizeGenericType(inst.MonomorphicTarget, nil)
+	concrete.Target = g.normalizeGenericType(abi, inst.MonomorphicTarget, nil)
 	concrete.TargetTypeIndex = nil
-	g.abi.Declarations = append(g.abi.Declarations, concrete)
+	abi.Declarations = append(abi.Declarations, concrete)
 	g.aliases[concreteName] = concrete
 	delete(g.genericInProgress, key)
 	return concreteName
 }
 
-func (g *generator) instantiateCompilerGenericStruct(name string, args []abiType, inst abiStructInstantiation) string {
+func (g *generator) instantiateCompilerGenericStruct(abi *abiFile, name string, args []abiType, inst abiStructInstantiation) string {
 	decl, ok := g.structs[name]
 	if !ok {
 		g.addDiagnostic(Diagnostic{
@@ -330,10 +333,10 @@ func (g *generator) instantiateCompilerGenericStruct(name string, args []abiType
 	concrete.TypeIndex = nil
 	concrete.Fields = append([]field(nil), decl.Fields...)
 	for i := range concrete.Fields {
-		concrete.Fields[i].Type = g.normalizeGenericType(inst.MonomorphicFields[i], nil)
+		concrete.Fields[i].Type = g.normalizeGenericType(abi, inst.MonomorphicFields[i], nil)
 		concrete.Fields[i].TypeIndex = nil
 	}
-	g.abi.Declarations = append(g.abi.Declarations, concrete)
+	abi.Declarations = append(abi.Declarations, concrete)
 	g.structs[concreteName] = concrete
 	delete(g.genericInProgress, key)
 	return concreteName
@@ -507,14 +510,17 @@ func (g *generator) rebuildDeclarationMaps() {
 	g.aliases = map[string]declaration{}
 	g.enums = map[string]declaration{}
 	g.structs = map[string]declaration{}
-	for _, decl := range g.abi.Declarations {
-		switch decl.Kind {
-		case "alias":
-			g.aliases[decl.Name] = decl
-		case "enum":
-			g.enums[decl.Name] = decl
-		case "struct":
-			g.structs[decl.Name] = decl
+
+	for _, abi := range g.abi {
+		for _, decl := range abi.Declarations {
+			switch decl.Kind {
+			case "alias":
+				g.aliases[decl.Name] = decl
+			case "enum":
+				g.enums[decl.Name] = decl
+			case "struct":
+				g.structs[decl.Name] = decl
+			}
 		}
 	}
 }

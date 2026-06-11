@@ -20,7 +20,7 @@ func TestGenerateUnsupportedStackParamReturnsError(t *testing.T) {
 		},
 	}
 
-	result, err := newGenerator(abi, "sample").Generate()
+	result, err := newGenerator([]abiFile{abi}, "sample").Generate()
 	src := result.Source
 	if err != nil {
 		t.Fatalf("generate: %v", err)
@@ -71,7 +71,7 @@ func TestGeneratedStackCellParamReturnsEncodeError(t *testing.T) {
 		},
 	}
 
-	result, err := newGenerator(abi, "sample").Generate()
+	result, err := newGenerator([]abiFile{abi}, "sample").Generate()
 	src := result.Source
 	if err != nil {
 		t.Fatalf("generate: %v", err)
